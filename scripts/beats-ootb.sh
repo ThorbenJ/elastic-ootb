@@ -3,6 +3,9 @@
 # Print the commands this script is executing
 set -x
 
+# Stop script if any command returns an error
+set -e
+
 # List of beats to install and configure
 BEATS2INSTALL="metricbeat auditbeat packetbeat filebeat heartbeat-elastic"
 
@@ -16,24 +19,27 @@ _fail() {
 test -f es-ootb.conf || _fail "Config file es-ootb.conf missing"
 . es-ootb.conf
 
+# Check config variables are set
+test -n "$ES_CLOUD_ID" || _fail "ES_CLOUD_ID missing from es-ootb.conf"
+test -n "$ES_CLOUD_AUTH" || _fail "ES_CLOUD_AUTH missing from es-ootb.conf"
+
+ES_CLOUD_INFO=$(echo ${ES_CLOUD_ID#*:} | base64 -d -)
+ES_DOMAIN=$(echo $ES_CLOUD_INFO | cut -d $ -f1)
+ES_ELASRCH_HOST=$(echo $ES_CLOUD_INFO | cut -d $ -f2)
+ES_KIBANA_HOST=$(echo $ES_CLOUD_INFO | cut -d $ -f3)
+
 #############################################################
 # Functions
 #
 
-# Check config variables are set
-cheack_config() {
-  test -n "$ES_CLOUD_ID" || _fail "ES_CLOUD_ID missing from es-ootb.conf"
-  test -n "$ES_CLOUD_AUTH" || _fail "ES_CLOUD_AUTH missing from es-ootb.conf"
-}
-
 # As per: https://www.elastic.co/guide/en/beats/metricbeat/current/setup-repositories.html
 install_on_Debian() {
-  sudo apt-get install apt-transport-https curl
+  sudo DEBIAN_FRONTEND=noninteractive apt-get -y install apt-transport-https curl
   curl https://artifacts.elastic.co/GPG-KEY-elasticsearch | sudo apt-key add -
   echo "deb https://artifacts.elastic.co/packages/7.x/apt stable main" | sudo tee /etc/apt/sources.list.d/elastic-7.x.list >/dev/null
   sudo apt-get update
 
-  sudo apt-get install $BEATS2INSTALL
+  sudo DEBIAN_FRONTEND=noninteractive apt-get -y install $BEATS2INSTALL
 }
 
 # Same as debian
@@ -74,15 +80,18 @@ configure_common() {
   # This avoids multiple executions from appending the same thing multiple times
   sudo cp "${BEAT_CONF}.original" "${BEAT_CONF}"
 
-  # Doc ref: https://www.elastic.co/guide/en/beats/metricbeat/current/configure-cloud-id.html (same for all beats)
-  # Doc ref: https://www.elastic.co/guide/en/beats/metricbeat/current/monitoring-internal-collection.html
   cat <<_EOF_ |
 
 ## OOTB script appended all below here ##
 
+# Doc ref: https://www.elastic.co/guide/en/beats/metricbeat/current/configure-cloud-id.html (same for all beats)
 cloud.id: "$ES_CLOUD_ID"
 cloud.auth: "$ES_CLOUD_AUTH"
 
+# Doc Ref: https://www.elastic.co/guide/en/beats/metricbeat/current/elasticsearch-output.html#pipeline-option-es
+output.elasticsearch.pipeline: "${1}-in"
+
+# Doc ref: https://www.elastic.co/guide/en/beats/metricbeat/current/monitoring-internal-collection.html
 monitoring:
   enabled: true
 
@@ -92,6 +101,20 @@ _EOF_
 
 configure_auditbeat() {
   configure_common auditbeat
+
+  curl -u "$ES_CLOUD_AUTH" -X PUT "https://${ES_ELASRCH_HOST}.${ES_DOMAIN}:9243/_ingest/pipeline/auditbeat-in" -H 'Content-Type: application/json' -d@- <<_EOF_
+{
+  "description": "Auditbeat ingest pipeline",
+  "processors": [
+    {
+      "pipeline": {
+        "name": "geoip-info"
+      }
+    }
+  ]
+}
+_EOF_
+  echo #add a new line after the REST reply
 }
 
 configure_filebeat() {
@@ -119,6 +142,39 @@ _EOF_
 
   # Doc Ref: https://www.elastic.co/guide/en/beats/filebeat/current/filebeat-modules.html
   sudo filebeat modules enable system 
+
+  curl -u "$ES_CLOUD_AUTH" -X PUT "https://${ES_ELASRCH_HOST}.${ES_DOMAIN}:9243/_ingest/pipeline/filebeat-in" -H 'Content-Type: application/json' -d@- <<_EOF_
+{
+  "description": "Filebeat ingest pipeline",
+  "processors": [
+    {
+      "pipeline": {
+        "name": "geoip-info"
+      }
+    },
+    {
+      "pipeline": {
+        "if": "0 == 1",
+        "name": "filebeat-{{_ingest.agent.version}}-iptables-log-pipeline"
+      }
+    },
+    {
+      "pipeline": {
+        "if": "ctx.fileset.name == 'auth'",
+        "name": "filebeat-{{_ingest.agent.version}}-system-auth-pipeline"
+      }
+    },
+    {
+      "pipeline": {
+        "if": "ctx.fileset.name == 'syslog'",
+        "name": "filebeat-{{_ingest.agent.version}}-system-syslog-pipeline"
+      }
+    }
+  ]
+}
+_EOF_
+
+  echo #add a new line after the REST reply
 }
 
 configure_heartbeat() {
@@ -150,6 +206,19 @@ processors:
 _EOF_
   sudo tee -a /etc/heartbeat/heartbeat.yml >/dev/null
 
+  curl -u "$ES_CLOUD_AUTH" -X PUT "https://${ES_ELASRCH_HOST}.${ES_DOMAIN}:9243/_ingest/pipeline/heartbeat-in" -H 'Content-Type: application/json' -d@- <<_EOF_
+{
+  "description": "Heartbeat ingest pipeline",
+  "processors": [
+    {
+      "pipeline": {
+        "name": "geoip-info"
+      }
+    }
+  ]
+}
+_EOF_
+  echo #add a new line after the REST reply
 }
 
 configure_metricbeat() {
@@ -157,11 +226,90 @@ configure_metricbeat() {
 
   # Doc Ref: https://www.elastic.co/guide/en/beats/metricbeat/current/metricbeat-modules.html
   sudo metricbeat modules enable system beat docker
+
+  curl -u "$ES_CLOUD_AUTH" -X PUT "https://${ES_ELASRCH_HOST}.${ES_DOMAIN}:9243/_ingest/pipeline/metricbeat-in" -H 'Content-Type: application/json' -d@- <<_EOF_
+{
+  "description": "Metricbeat ingest pipeline",
+  "processors": [
+    {
+      "pipeline": {
+        "name": "geoip-info"
+      }
+    }
+  ]
+}
+_EOF_
+  echo #add a new line after the REST reply
 }
 
 configure_packetbeat() {
   configure_common packetbeat
+
+  curl -u "$ES_CLOUD_AUTH" -X PUT "https://${ES_ELASRCH_HOST}.${ES_DOMAIN}:9243/_ingest/pipeline/packetbeat-in" -H 'Content-Type: application/json' -d@- <<_EOF_
+{
+  "description": "Packetbeat ingest pipeline",
+  "processors": [
+    {
+      "pipeline": {
+        "name": "geoip-info"
+      }
+    }
+  ]
 }
+_EOF_
+  echo #add a new line after the REST reply
+}
+
+# Configure a pipeline to add GeoIP data to ECS common fields
+# Doc Ref: https://www.elastic.co/guide/en/beats/packetbeat/7.3/packetbeat-geoip.html
+# Doc Ref: https://www.elastic.co/guide/en/beats/filebeat/current/filebeat-geoip.html
+configure_geoip_pipeline() {
+  curl -u "$ES_CLOUD_AUTH" -X PUT "https://${ES_ELASRCH_HOST}.${ES_DOMAIN}:9243/_ingest/pipeline/geoip-info" -H 'Content-Type: application/json' -d@- <<_EOF_
+{
+  "description": "Add geoip info",
+  "processors": [
+    {
+      "geoip": {
+        "field": "client.ip",
+        "target_field": "client.geo",
+        "ignore_missing": true
+      }
+    },
+    {
+      "geoip": {
+        "field": "source.ip",
+        "target_field": "source.geo",
+        "ignore_missing": true
+      }
+    },
+    {
+      "geoip": {
+        "field": "destination.ip",
+        "target_field": "destination.geo",
+        "ignore_missing": true
+      }
+    },
+    {
+      "geoip": {
+        "field": "server.ip",
+        "target_field": "server.geo",
+        "ignore_missing": true
+      }
+    },
+    {
+      "geoip": {
+        "field": "host.ip",
+        "target_field": "host.geo",
+        "ignore_missing": true
+      }
+    }
+  ]
+}
+_EOF_
+  echo #add a new line after the REST reply
+
+}
+
 
 launch_via_systemd() {
   sudo systemctl enable $1
@@ -172,8 +320,9 @@ launch_via_systemd() {
 # Script starts here
 #
 
-check_config
 install_on_$(lsb_release -is)
+
+configure_geoip_pipeline
 
 for beat in $BEATS2INSTALL; do
   BEAT=${beat%-elastic}
