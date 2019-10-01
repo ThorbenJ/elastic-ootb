@@ -1,5 +1,24 @@
 #!/bin/bash
 
+################################################################
+#
+# This script attempts create an initial out-of-the-box beats deployment on the
+# host it is run on. Please run it as a normal user that can execute sudo
+# The script requires: sudo, curl, lsb_release*
+# This script can run on: Debian, Ubuntu (etc.), Centos, RHEL (etc.)
+# This script will install the beats list a few lines below (see BEATS2INSTALL)
+# This script will configure those beats for an Elastic Cloud deployment
+# (defined in es-ootb.conf, see below)
+# It will configure basic common features and docker host monitoring
+# It will also configure ingest pipelines, to improve the experience in kibana
+#
+# It is expected that a file called "es-ootb.conf" will exist in the current
+# working directory. This file must contain two variables:
+# ES_CLOUD_ID="<YOUR CLOUD ID>"
+# ES_CLOUD_AUTH="<YOUR CLOUD AUTH>"
+#
+# *On Centos at least lsb_release is not installed by default
+
 # Print the commands this script is executing
 set -x
 
@@ -15,6 +34,11 @@ _fail() {
   exit 1
 }
 
+# Test that programmes we are going to use are installed
+for c in curl sudo lsb_release; do
+  test -x "$(which $c)" || _fail "Programme '$c' appears to be missing"
+done
+
 # Read config variables
 test -f es-ootb.conf || _fail "Config file es-ootb.conf missing"
 . es-ootb.conf
@@ -28,11 +52,18 @@ ES_DOMAIN=$(echo $ES_CLOUD_INFO | cut -d $ -f1)
 ES_ELASRCH_HOST=$(echo $ES_CLOUD_INFO | cut -d $ -f2)
 ES_KIBANA_HOST=$(echo $ES_CLOUD_INFO | cut -d $ -f3)
 
+# Will we configure beats to monitor a docker host?
+CONFIGURE4DOCKER=
+test -S /var/run/docker.sock && CONFIGURE4DOCKER=1
+
 #############################################################
 # Functions
 #
 
+### Installation ####
+
 # As per: https://www.elastic.co/guide/en/beats/metricbeat/current/setup-repositories.html
+# Fully tested
 install_on_Debian() {
   sudo DEBIAN_FRONTEND=noninteractive apt-get -y install apt-transport-https curl
   curl https://artifacts.elastic.co/GPG-KEY-elasticsearch | sudo apt-key add -
@@ -43,11 +74,12 @@ install_on_Debian() {
 }
 
 # Same as debian
+# Not tested
 install_on_Ubuntu() { install_on_Debian; }
 
 # As per: https://www.elastic.co/guide/en/beats/metricbeat/current/setup-repositories.html
-# Not tested
-install_on_Centos() {
+# Tested without docker
+install_on_CentOS() {
   sudo rpm --import https://packages.elastic.co/GPG-KEY-elasticsearch
   cat <<_EOF_ |
 [elastic-7.x]
@@ -63,10 +95,13 @@ _EOF_
 
   #sudo yum repolist
 
-  sudo yum install $BEATS2INSTALL
+  sudo yum -y install $BEATS2INSTALL
 }
 
-install_on_RHEL() { install_on_Centos; }
+# Not tested
+install_on_RHEL() { install_on_CentOS; }
+
+### Beats configuration ###
 
 # Configuration for most beats
 configure_common() {
@@ -80,6 +115,8 @@ configure_common() {
   # This avoids multiple executions from appending the same thing multiple times
   sudo cp "${BEAT_CONF}.original" "${BEAT_CONF}"
 
+  # Append the following config snipet to the beat config file via sudo
+  # NOTE each beat will create an ingest pipeline called "beatname-in"
   cat <<_EOF_ |
 
 ## OOTB script appended all below here ##
@@ -102,6 +139,7 @@ _EOF_
 configure_auditbeat() {
   configure_common auditbeat
 
+  # Configure auditbeat to use our (ECS) geoip pipeline
   curl -u "$ES_CLOUD_AUTH" -X PUT "https://${ES_ELASRCH_HOST}.${ES_DOMAIN}:9243/_ingest/pipeline/auditbeat-in" -H 'Content-Type: application/json' -d@- <<_EOF_
 {
   "description": "Auditbeat ingest pipeline",
@@ -120,11 +158,12 @@ _EOF_
 configure_filebeat() {
   configure_common filebeat
 
-  # Repeated yaml entries completly overwrite/replace previous entries; so filebeat.inputs here overrides any previous configuration
-  # Doc Ref: https://www.elastic.co/guide/en/beats/filebeat/current/filebeat-input-container.html
-  # Doc Ref: https://www.elastic.co/guide/en/beats/filebeat/current/add-docker-metadata.html
-  cat <<_EOF_ |
+  # Most none default config setting related to monitoring docker containers
+  if [ -n "$CONFIGURE4DOCKER" ]; then
+    # Repeated yaml entries completly overwrite/replace previous entries; so filebeat.inputs here overrides any previous configuration
+    cat <<_EOF_ |
 filebeat.inputs:
+# Doc Ref: https://www.elastic.co/guide/en/beats/filebeat/current/filebeat-input-container.html
 - type: container
   paths:
     - '/var/lib/docker/containers/*/*.log'
@@ -132,17 +171,23 @@ filebeat.inputs:
 #  json.add_error_key: true
 #  json.message_key: log
 
+# Doc Ref: https://www.elastic.co/guide/en/beats/filebeat/current/add-docker-metadata.html
 processors:
   - add_docker_metadata: ~
   - add_host_metadata: ~
   - add_cloud_metadata: ~
 
 _EOF_
-  sudo tee -a /etc/filebeat/filebeat.yml >/dev/null
+    sudo tee -a /etc/filebeat/filebeat.yml >/dev/null
+
+  fi #Configure for docker
 
   # Doc Ref: https://www.elastic.co/guide/en/beats/filebeat/current/filebeat-modules.html
   sudo filebeat modules enable system 
 
+  # Configure filebeat's ingest pipeline
+  # NOTE some filebeat modules ship with their own ingest pipelines, for compatibility we try to redirect
+  # to those pipelines
   curl -u "$ES_CLOUD_AUTH" -X PUT "https://${ES_ELASRCH_HOST}.${ES_DOMAIN}:9243/_ingest/pipeline/filebeat-in" -H 'Content-Type: application/json' -d@- <<_EOF_
 {
   "description": "Filebeat ingest pipeline",
@@ -154,7 +199,7 @@ _EOF_
     },
     {
       "pipeline": {
-        "if": "0 == 1",
+        "if": "ctx.fileset.name == 'iptables'",
         "name": "filebeat-{{_ingest.agent.version}}-iptables-log-pipeline"
       }
     },
@@ -180,9 +225,12 @@ _EOF_
 configure_heartbeat() {
   configure_common heartbeat
 
-  # Doc Ref: https://www.elastic.co/guide/en/beats/heartbeat/current/configuration-autodiscover.html
-  # single quote ' _EOF_ to disable shell substituion, otherwise bash will complain about ${data.host}, etc.
-  cat <<'_EOF_' |
+  # Configure heartbeat to automatically monitor any container network endpoints
+  # Without docker the default heartbeat monitor is localhost:9200, which likely does not exist
+  if [ -n "$CONFIGURE4DOCKER" ]; then
+    # Doc Ref: https://www.elastic.co/guide/en/beats/heartbeat/current/configuration-autodiscover.html
+    # single quote ' _EOF_ to disable shell substituion, otherwise bash will complain about ${data.host}, etc.
+    cat <<'_EOF_' |
 # Disable previously configured monitors
 heartbeat.monitors: ~
 
@@ -204,8 +252,11 @@ processors:
 - add_docker_metadata: ~
 
 _EOF_
-  sudo tee -a /etc/heartbeat/heartbeat.yml >/dev/null
+    sudo tee -a /etc/heartbeat/heartbeat.yml >/dev/null
 
+  fi # Configure for docker
+
+  # Create our heartbeat pipeline
   curl -u "$ES_CLOUD_AUTH" -X PUT "https://${ES_ELASRCH_HOST}.${ES_DOMAIN}:9243/_ingest/pipeline/heartbeat-in" -H 'Content-Type: application/json' -d@- <<_EOF_
 {
   "description": "Heartbeat ingest pipeline",
@@ -227,6 +278,7 @@ configure_metricbeat() {
   # Doc Ref: https://www.elastic.co/guide/en/beats/metricbeat/current/metricbeat-modules.html
   sudo metricbeat modules enable system beat docker
 
+  # Create our metricbeat pipeline
   curl -u "$ES_CLOUD_AUTH" -X PUT "https://${ES_ELASRCH_HOST}.${ES_DOMAIN}:9243/_ingest/pipeline/metricbeat-in" -H 'Content-Type: application/json' -d@- <<_EOF_
 {
   "description": "Metricbeat ingest pipeline",
@@ -245,6 +297,7 @@ _EOF_
 configure_packetbeat() {
   configure_common packetbeat
 
+  # Create our packetbeat pipeline
   curl -u "$ES_CLOUD_AUTH" -X PUT "https://${ES_ELASRCH_HOST}.${ES_DOMAIN}:9243/_ingest/pipeline/packetbeat-in" -H 'Content-Type: application/json' -d@- <<_EOF_
 {
   "description": "Packetbeat ingest pipeline",
@@ -320,11 +373,14 @@ launch_via_systemd() {
 # Script starts here
 #
 
+# e.g. install_on_Debian or install_on_CentOS
 install_on_$(lsb_release -is)
 
 configure_geoip_pipeline
 
 for beat in $BEATS2INSTALL; do
+
+  # Handle heartbeat having a package/service-name of heartbeat-elastic
   BEAT=${beat%-elastic}
 
   configure_$BEAT
@@ -332,6 +388,6 @@ for beat in $BEATS2INSTALL; do
   # Doc Ref: https://www.elastic.co/guide/en/beats/metricbeat/current/command-line-options.html#setup-command
   test -n "$ES_BEAT_SKIP_SETUP" || sudo $BEAT setup
 
-  launch_via_systemd $beat
+  launch_via_systemd $beat #here we really want the service name
 done
 
