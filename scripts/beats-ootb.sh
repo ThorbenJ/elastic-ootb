@@ -22,6 +22,9 @@
 # Other variables in this script can be overriden by es-ootb.conf
 #
 
+# Avoid issues locales
+unset LANG LC_CTYPE LC_ALL
+
 # Print the commands this script is executing
 set -x
 
@@ -258,9 +261,11 @@ configure_heartbeat() {
   # Configure heartbeat to automatically monitor any container network endpoints
   # Without docker the default heartbeat monitor is localhost:9200, which likely does not exist
   if [ -n "$CONFIGURE4DOCKER" ]; then
+  
+    HOSTNAME=$(hostname -s)
     
     # single quote ' _EOF_ to disable shell substituion, otherwise bash will complain about ${data.host}, etc.
-    cat <<'_EOF_' |
+    cat <<_EOF_ |
 # Disable previously configured monitors
 heartbeat.monitors: ~
 
@@ -271,10 +276,10 @@ heartbeat.autodiscover:
       templates:
         - config:
           - type: tcp
-            id: "${data.docker.container.id}-${data.port}"
-            name: "${data.docker.container.name}_${data.port}"
-            fields.docker_info: ${data.docker}
-            hosts: ["${data.host}:${data.port}"]
+            id: "\${data.docker.container.id}-\${data.port}"
+            name: "${HOSTNAME}_\${data.docker.container.name}_\${data.port}"
+            fields.docker_info: \${data.docker}
+            hosts: ["\${data.host}:\${data.port}"]
             schedule: "@every 10s"
             timeout: 1s
 

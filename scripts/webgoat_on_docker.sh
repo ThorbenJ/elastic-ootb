@@ -12,6 +12,9 @@
 #   e.g. run: webgoat_on_docker up
 #
 
+# Avoid issues locales
+unset LANG LC_CTYPE LC_ALL
+
 # Print the commands this script is executing
 set -x
 
