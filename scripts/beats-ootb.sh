@@ -69,15 +69,18 @@ test -S /var/run/docker.sock && CONFIGURE4DOCKER=1
 # As per: https://www.elastic.co/guide/en/beats/metricbeat/current/setup-repositories.html
 # Fully tested
 install_on_Debian() {
-  sudo DEBIAN_FRONTEND=noninteractive apt-get -y install apt-transport-https ca-certificates
-  
-  curl -fsSL https://artifacts.elastic.co/GPG-KEY-elasticsearch | sudo apt-key add -
-  
-  echo "deb https://artifacts.elastic.co/packages/7.x/apt stable main" \
-    | sudo tee /etc/apt/sources.list.d/elastic-7.x.list >/dev/null
-    
-  sudo apt-get update
 
+  if ! test -f /etc/apt/sources.list.d/elastic-7.x.list ; then
+    sudo DEBIAN_FRONTEND=noninteractive apt-get -y install apt-transport-https ca-certificates
+  
+    curl -fsSL https://artifacts.elastic.co/GPG-KEY-elasticsearch | sudo apt-key add -
+  
+    echo "deb https://artifacts.elastic.co/packages/7.x/apt stable main" \
+      | sudo tee /etc/apt/sources.list.d/elastic-7.x.list >/dev/null
+    
+    sudo apt-get update
+  fi
+  
   sudo DEBIAN_FRONTEND=noninteractive apt-get -y install $BEATS_LIST
   
 } # End: install_on_Debian
@@ -90,9 +93,11 @@ install_on_Ubuntu() { install_on_Debian; }
 # As per: https://www.elastic.co/guide/en/beats/metricbeat/current/setup-repositories.html
 # Tested without docker
 install_on_CentOS() {
-  sudo rpm --import https://packages.elastic.co/GPG-KEY-elasticsearch
+
+  if ! test -f /etc/yum.repos.d/elastic.repo ; then
+    sudo rpm --import https://packages.elastic.co/GPG-KEY-elasticsearch
   
-  cat <<_EOF_ |
+    cat <<_EOF_ |
 [elastic-7.x]
 name=Elastic repository for 7.x packages
 baseurl=https://artifacts.elastic.co/packages/7.x/yum
@@ -102,9 +107,10 @@ enabled=1
 autorefresh=1
 type=rpm-md
 _EOF_
-  sudo tee /etc/yum.repos.d/elastic.repo
+    sudo tee /etc/yum.repos.d/elastic.repo
 
-  #sudo yum repolist
+    #sudo yum repolist
+  fi
 
   sudo yum -y install $BEATS_LIST
   
@@ -406,7 +412,7 @@ _EOF_
 } # End: configure_geoip_pipeline
 
 
-launch_via_systemd() {
+relaunch_via_systemd() {
   sudo systemctl enable $1
   sudo systemctl restart $1
 }
@@ -430,6 +436,6 @@ for beat in $BEATS_LIST; do
   # Doc Ref: https://www.elastic.co/guide/en/beats/metricbeat/current/command-line-options.html#setup-command
   test -n "$ES_BEAT_SKIP_SETUP" || sudo $BEAT setup
 
-  launch_via_systemd $beat #here we really want the service name
+  relaunch_via_systemd $beat #here we really want the service name
 done
 
