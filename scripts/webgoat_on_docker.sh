@@ -45,16 +45,18 @@ test -f es-ootb.conf || _fail "Config file es-ootb.conf missing"
 # Fully tested
 install_on_Debian() {
 
-  # Doc Ref: https://docs.docker.com/install/linux/docker-ce/debian/
-  sudo DEBIAN_FRONTEND=noninteractive apt-get -y install apt-transport-https ca-certificates
+  if ! test -f /etc/apt/sources.list.d/docker-ce.list; then
+    # Doc Ref: https://docs.docker.com/install/linux/docker-ce/debian/
+    sudo DEBIAN_FRONTEND=noninteractive apt-get -y install apt-transport-https ca-certificates
   
-  curl -fsSL https://download.docker.com/linux/debian/gpg | sudo apt-key add -
+    curl -fsSL https://download.docker.com/linux/debian/gpg | sudo apt-key add -
   
-  echo "deb [arch=amd64] https://download.docker.com/linux/debian $(lsb_release -cs) stable" \
-    | sudo tee /etc/apt/sources.list.d/docker-ce.list >/dev/null
+    echo "deb [arch=amd64] https://download.docker.com/linux/debian $(lsb_release -cs) stable" \
+      | sudo tee /etc/apt/sources.list.d/docker-ce.list >/dev/null
 
-  sudo apt-get update
-
+    sudo apt-get update
+  fi
+  
   sudo DEBIAN_FRONTEND=noninteractive apt-get -y install \
     docker-ce docker-ce-cli containerd.io docker-compose
   
@@ -77,13 +79,34 @@ install_on_CentOS() {
   sudo yum install -y docker-ce docker-ce-cli containerd.io
   
   # Doc Ref: https://docs.docker.com/compose/install/
-  sudo curl -L "https://github.com/docker/compose/releases/download/1.24.1/docker-compose-$(uname -s)-$(uname -m)" -o /usr/local/bin/docker-compose
-  sudo chmod +x /usr/local/bin/docker-compose
+  if ! test -f /usr/local/bin/docker-compose ; then
+    sudo curl -L "https://github.com/docker/compose/releases/download/1.24.1/docker-compose-$(uname -s)-$(uname -m)" -o /usr/local/bin/docker-compose
+    sudo chmod +x /usr/local/bin/docker-compose
+  fi
   
 } # End: install_on_CentOS
 
 # Not tested
 install_on_RHEL() { install_on_CentOS; }
+
+configure_user(){
+
+  if ! groups|grep -q docker ; then
+    echo Adding $USER to docker group
+    sudo usermod -aG docker $USER
+    
+    echo "YOU MUST LOGOUT AND BACK IN!"
+    echo "So that your user has its new docker group membership"
+    
+    exit 2
+    
+  fi
+}
+
+launch_via_systemd() {
+  sudo systemctl enable $1
+  sudo systemctl start $1
+}
 
 ################################################################
 # Script
@@ -92,7 +115,12 @@ install_on_RHEL() { install_on_CentOS; }
 # e.g. install_on_Debian or install_on_CentOS
 install_on_$(lsb_release -is)
 
+configure_user
+
+launch_via_systemd docker
+
 # Doc Ref: https://github.com/WebGoat/WebGoat
-curl https://raw.githubusercontent.com/WebGoat/WebGoat/develop/docker-compose.yml -o "$WEBGOAT_DC_FILE"
+test -f "$WEBGOAT_DC_FILE" || \
+ curl https://raw.githubusercontent.com/WebGoat/WebGoat/develop/docker-compose.yml -o "$WEBGOAT_DC_FILE"
 
 docker-compose -f "$WEBGOAT_DC_FILE" $@
