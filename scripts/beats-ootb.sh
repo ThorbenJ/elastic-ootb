@@ -69,9 +69,13 @@ test -S /var/run/docker.sock && CONFIGURE4DOCKER=1
 # As per: https://www.elastic.co/guide/en/beats/metricbeat/current/setup-repositories.html
 # Fully tested
 install_on_Debian() {
-  sudo DEBIAN_FRONTEND=noninteractive apt-get -y install apt-transport-https curl
-  curl https://artifacts.elastic.co/GPG-KEY-elasticsearch | sudo apt-key add -
-  echo "deb https://artifacts.elastic.co/packages/7.x/apt stable main" | sudo tee /etc/apt/sources.list.d/elastic-7.x.list >/dev/null
+  sudo DEBIAN_FRONTEND=noninteractive apt-get -y install apt-transport-https ca-certificates
+  
+  curl -fsSL https://artifacts.elastic.co/GPG-KEY-elasticsearch | sudo apt-key add -
+  
+  echo "deb https://artifacts.elastic.co/packages/7.x/apt stable main" \
+    | sudo tee /etc/apt/sources.list.d/elastic-7.x.list >/dev/null
+    
   sudo apt-get update
 
   sudo DEBIAN_FRONTEND=noninteractive apt-get -y install $BEATS_LIST
@@ -87,6 +91,7 @@ install_on_Ubuntu() { install_on_Debian; }
 # Tested without docker
 install_on_CentOS() {
   sudo rpm --import https://packages.elastic.co/GPG-KEY-elasticsearch
+  
   cat <<_EOF_ |
 [elastic-7.x]
 name=Elastic repository for 7.x packages
