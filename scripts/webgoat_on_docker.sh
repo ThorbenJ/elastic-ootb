@@ -12,7 +12,7 @@
 #   e.g. run: webgoat_on_docker up
 #
 
-# Avoid issues locales
+# Avoid issues with locales
 unset LANG LC_CTYPE LC_ALL
 
 # Print the commands this script is executing
@@ -23,7 +23,7 @@ set -e
 
 # Helper print message and exit
 _fail() {
-  echo $@
+  echo $@ >&2
   exit 1
 }
 
@@ -45,7 +45,6 @@ test -f es-ootb.conf || _fail "Config file es-ootb.conf missing"
 ##### Installation ######
 
 # As per: https://www.elastic.co/guide/en/beats/metricbeat/current/setup-repositories.html
-# Fully tested
 install_on_Debian() {
 
   if ! test -f /etc/apt/sources.list.d/docker-ce.list; then
@@ -71,7 +70,6 @@ install_on_Ubuntu() { install_on_Debian; }
 
 
 # As per: https://www.elastic.co/guide/en/beats/metricbeat/current/setup-repositories.html
-# Tested without docker
 install_on_CentOS() {
 
   # Doc Ref: https://docs.docker.com/install/linux/docker-ce/centos/

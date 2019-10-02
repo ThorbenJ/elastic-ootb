@@ -22,7 +22,7 @@
 # Other variables in this script can be overriden by es-ootb.conf
 #
 
-# Avoid issues locales
+# Avoid issues with locales
 unset LANG LC_CTYPE LC_ALL
 
 # Print the commands this script is executing
@@ -36,7 +36,7 @@ BEATS_LIST="metricbeat auditbeat packetbeat filebeat heartbeat-elastic"
 
 # Helper print message and exit
 _fail() {
-  echo $@
+  echo $@ >&2
   exit 1
 }
 
@@ -70,7 +70,6 @@ test -S /var/run/docker.sock && CONFIGURE4DOCKER=1
 ##### Installation ######
 
 # As per: https://www.elastic.co/guide/en/beats/metricbeat/current/setup-repositories.html
-# Fully tested
 install_on_Debian() {
 
   if ! test -f /etc/apt/sources.list.d/elastic-7.x.list ; then
@@ -94,7 +93,6 @@ install_on_Ubuntu() { install_on_Debian; }
 
 
 # As per: https://www.elastic.co/guide/en/beats/metricbeat/current/setup-repositories.html
-# Tested without docker
 install_on_CentOS() {
 
   if ! test -f /etc/yum.repos.d/elastic.repo ; then
