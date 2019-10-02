@@ -53,6 +53,7 @@ test -S /var/run/docker.sock || _fail "Docker does not appear to be running"
 
 install_on_Debian() {
   
+  # This will pull in the default JDK and its many mnay dependencies, unfortunately
   sudo DEBIAN_FRONTEND=noninteractive apt-get -y install maven
   
 } # End: install_on_Debian
@@ -63,6 +64,7 @@ install_on_Ubuntu() { install_on_Debian; }
 
 install_on_CentOS() {
 
+  # This will pull in the default JDK and its many mnay dependencies, unfortunately
   sudo yum -y install maven
   
 } # End: install_on_CentOS
@@ -73,8 +75,11 @@ install_on_RHEL() { install_on_CentOS; }
 # Doc Ref: https://www.elastic.co/guide/en/apm/agent/java/current/setup-attach-cli.html
 fetch_apm_agent() {
 
-  mvn dependency:get -Dartifact=co.elastic.apm:apm-agent-attach:LATEST:jar:standalone >&2
-  
+  # The version of mvn on CentOS is too old, so one needs to use an explicit version
+  #mvn dependency:get -Dartifact=co.elastic.apm:apm-agent-attach:LATEST:jar:standalone >&2
+  mvn org.apache.maven.plugins:maven-dependency-plugin:2.10:get \
+     -Dartifact=co.elastic.apm:apm-agent-attach:LATEST:jar:standalone >&2
+     
   JAR=$(find $HOME -iname apm-agent-attach-\*-standalone.jar | tail -n1 )
   
   test -f "$JAR" || _fail "Failed to fetch apm agent attach"
@@ -95,6 +100,7 @@ AAAS_JAR=$( fetch_apm_agent )
 # Doc Ref: https://www.elastic.co/guide/en/apm/agent/java/current/setup-attach-cli.html#setup-attach-cli-docker
 # The code below is adapted from the docs ^
 
+# FIXME avoid attaching more than once!
 attach_apm_agent () {
 # only attempt attachment if this looks like a java container
   if docker inspect "${container_id}" |  grep -q \\bjava\\b ; then
