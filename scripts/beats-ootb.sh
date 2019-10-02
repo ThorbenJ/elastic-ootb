@@ -4,20 +4,23 @@
 #
 # This script attempts create an initial out-of-the-box beats deployment on the
 # host it is run on. Please run it as a normal user that can execute sudo
-# The script requires: sudo, curl, lsb_release*
-# This script can run on: Debian, Ubuntu (etc.), Centos, RHEL (etc.)
-# This script will install the beats list a few lines below (see BEATS2INSTALL)
-# This script will configure those beats for an Elastic Cloud deployment
-# (defined in es-ootb.conf, see below)
-# It will configure basic common features and docker host monitoring
-# It will also configure ingest pipelines, to improve the experience in kibana
+# This script:-
+# - is heavily annotated, so that you can use it as a reference
+# - requires: sudo, curl, lsb_release
+# - can run on: Debian, Ubuntu (etc.), Centos, RHEL (etc.)
+# - will install the beats listed a few lines below (see BEATS_LIST)
+# - will configure those beats for an Elastic Cloud deployment
+#   (defined in es-ootb.conf, see below)
+# - configure basic common features and docker host monitoring
+# - configure ingest pipelines, to improve the experience in kibana
 #
 # It is expected that a file called "es-ootb.conf" will exist in the current
 # working directory. This file must contain two variables:
 # ES_CLOUD_ID="<YOUR CLOUD ID>"
 # ES_CLOUD_AUTH="<YOUR CLOUD AUTH>"
 #
-# *On Centos at least lsb_release is not installed by default
+# Other variables in this script can be overriden by es-ootb.conf
+#
 
 # Print the commands this script is executing
 set -x
@@ -26,7 +29,7 @@ set -x
 set -e
 
 # List of beats to install and configure
-BEATS2INSTALL="metricbeat auditbeat packetbeat filebeat heartbeat-elastic"
+BEATS_LIST="metricbeat auditbeat packetbeat filebeat heartbeat-elastic"
 
 # Helper print message and exit
 _fail() {
@@ -47,6 +50,7 @@ test -f es-ootb.conf || _fail "Config file es-ootb.conf missing"
 test -n "$ES_CLOUD_ID" || _fail "ES_CLOUD_ID missing from es-ootb.conf"
 test -n "$ES_CLOUD_AUTH" || _fail "ES_CLOUD_AUTH missing from es-ootb.conf"
 
+# Unpack ES_CLOUD_ID
 ES_CLOUD_INFO=$(echo ${ES_CLOUD_ID#*:} | base64 -d -)
 ES_DOMAIN=$(echo $ES_CLOUD_INFO | cut -d $ -f1)
 ES_ELASRCH_HOST=$(echo $ES_CLOUD_INFO | cut -d $ -f2)
@@ -56,11 +60,11 @@ ES_KIBANA_HOST=$(echo $ES_CLOUD_INFO | cut -d $ -f3)
 CONFIGURE4DOCKER=
 test -S /var/run/docker.sock && CONFIGURE4DOCKER=1
 
-#############################################################
+###############################################################
 # Functions
 #
 
-### Installation ####
+##### Installation ######
 
 # As per: https://www.elastic.co/guide/en/beats/metricbeat/current/setup-repositories.html
 # Fully tested
@@ -70,12 +74,14 @@ install_on_Debian() {
   echo "deb https://artifacts.elastic.co/packages/7.x/apt stable main" | sudo tee /etc/apt/sources.list.d/elastic-7.x.list >/dev/null
   sudo apt-get update
 
-  sudo DEBIAN_FRONTEND=noninteractive apt-get -y install $BEATS2INSTALL
-}
+  sudo DEBIAN_FRONTEND=noninteractive apt-get -y install $BEATS_LIST
+  
+} # End: install_on_Debian
 
 # Same as debian
 # Not tested
 install_on_Ubuntu() { install_on_Debian; }
+
 
 # As per: https://www.elastic.co/guide/en/beats/metricbeat/current/setup-repositories.html
 # Tested without docker
@@ -95,13 +101,16 @@ _EOF_
 
   #sudo yum repolist
 
-  sudo yum -y install $BEATS2INSTALL
-}
+  sudo yum -y install $BEATS_LIST
+  
+} # End: install_on_CentOS
 
 # Not tested
 install_on_RHEL() { install_on_CentOS; }
 
-### Beats configuration ###
+
+##### Beats configuration #####
+
 
 # Configuration for most beats
 configure_common() {
@@ -109,7 +118,7 @@ configure_common() {
   test -f "$BEAT_CONF" || _fail "Beat config file missing: $BEAT_CONF"
 
   # Keep a copy of the original, if not already done
-  test -f "${BEAT_CONF}.original" || sudo cp "$BEAT_CONF" "${BEAT_CONF}.original"
+  test -f "${BEAT_CONF}.original" || sudo cp "${BEAT_CONF}" "${BEAT_CONF}.original"
 
   # This script always starts with a clean "original" copy of the config
   # This avoids multiple executions from appending the same thing multiple times
@@ -121,7 +130,7 @@ configure_common() {
 
 ## OOTB script appended all below here ##
 
-# Doc ref: https://www.elastic.co/guide/en/beats/metricbeat/current/configure-cloud-id.html (same for all beats)
+# Doc ref: https://www.elastic.co/guide/en/beats/metricbeat/current/configure-cloud-id.html
 cloud.id: "$ES_CLOUD_ID"
 cloud.auth: "$ES_CLOUD_AUTH"
 
@@ -134,12 +143,16 @@ monitoring:
 
 _EOF_
   sudo tee -a "$BEAT_CONF" >/dev/null
-}
+  
+} # End: configure_common
+
 
 configure_auditbeat() {
   configure_common auditbeat
 
   # Configure auditbeat to use our (ECS) geoip pipeline
+  # Doc Ref: https://www.elastic.co/guide/en/elasticsearch/reference/current/ingest.html
+  # Doc Ref: https://www.elastic.co/guide/en/elasticsearch/reference/current/pipeline-processor.html
   curl -u "$ES_CLOUD_AUTH" -X PUT "https://${ES_ELASRCH_HOST}.${ES_DOMAIN}:9243/_ingest/pipeline/auditbeat-in" -H 'Content-Type: application/json' -d@- <<_EOF_
 {
   "description": "Auditbeat ingest pipeline",
@@ -153,13 +166,16 @@ configure_auditbeat() {
 }
 _EOF_
   echo #add a new line after the REST reply
-}
+  
+} # End: configure_auditbeat
+
 
 configure_filebeat() {
   configure_common filebeat
 
   # Most none default config setting related to monitoring docker containers
   if [ -n "$CONFIGURE4DOCKER" ]; then
+  
     # Repeated yaml entries completly overwrite/replace previous entries; so filebeat.inputs here overrides any previous configuration
     cat <<_EOF_ |
 filebeat.inputs:
@@ -180,14 +196,16 @@ processors:
 _EOF_
     sudo tee -a /etc/filebeat/filebeat.yml >/dev/null
 
-  fi #Configure for docker
+  fi # End: IF Configure for docker
 
   # Doc Ref: https://www.elastic.co/guide/en/beats/filebeat/current/filebeat-modules.html
   sudo filebeat modules enable system 
 
   # Configure filebeat's ingest pipeline
-  # NOTE some filebeat modules ship with their own ingest pipelines, for compatibility we try to redirect
-  # to those pipelines
+  # NOTE some filebeat modules ship with their own ingest pipelines, for compatibility
+  # we try to redirect to those pipelines
+  # Doc Ref: https://www.elastic.co/guide/en/elasticsearch/reference/current/ingest.html
+  # Doc Ref: https://www.elastic.co/guide/en/elasticsearch/reference/current/pipeline-processor.html
   curl -u "$ES_CLOUD_AUTH" -X PUT "https://${ES_ELASRCH_HOST}.${ES_DOMAIN}:9243/_ingest/pipeline/filebeat-in" -H 'Content-Type: application/json' -d@- <<_EOF_
 {
   "description": "Filebeat ingest pipeline",
@@ -218,9 +236,10 @@ _EOF_
   ]
 }
 _EOF_
-
   echo #add a new line after the REST reply
-}
+  
+} # End: configure_filebeat
+
 
 configure_heartbeat() {
   configure_common heartbeat
@@ -228,12 +247,13 @@ configure_heartbeat() {
   # Configure heartbeat to automatically monitor any container network endpoints
   # Without docker the default heartbeat monitor is localhost:9200, which likely does not exist
   if [ -n "$CONFIGURE4DOCKER" ]; then
-    # Doc Ref: https://www.elastic.co/guide/en/beats/heartbeat/current/configuration-autodiscover.html
+    
     # single quote ' _EOF_ to disable shell substituion, otherwise bash will complain about ${data.host}, etc.
     cat <<'_EOF_' |
 # Disable previously configured monitors
 heartbeat.monitors: ~
 
+# Doc Ref: https://www.elastic.co/guide/en/beats/heartbeat/current/configuration-autodiscover.html
 heartbeat.autodiscover:
   providers:
     - type: docker
@@ -247,6 +267,7 @@ heartbeat.autodiscover:
             schedule: "@every 10s"
             timeout: 1s
 
+# Doc Ref: https://www.elastic.co/guide/en/beats/heartbeat/current/add-docker-metadata.html
 processors:
 - add_observer_metadata: ~
 - add_docker_metadata: ~
@@ -254,9 +275,11 @@ processors:
 _EOF_
     sudo tee -a /etc/heartbeat/heartbeat.yml >/dev/null
 
-  fi # Configure for docker
+  fi # End: IF Configure for docker
 
   # Create our heartbeat pipeline
+  # Doc Ref: https://www.elastic.co/guide/en/elasticsearch/reference/current/ingest.html
+  # Doc Ref: https://www.elastic.co/guide/en/elasticsearch/reference/current/pipeline-processor.html
   curl -u "$ES_CLOUD_AUTH" -X PUT "https://${ES_ELASRCH_HOST}.${ES_DOMAIN}:9243/_ingest/pipeline/heartbeat-in" -H 'Content-Type: application/json' -d@- <<_EOF_
 {
   "description": "Heartbeat ingest pipeline",
@@ -270,7 +293,9 @@ _EOF_
 }
 _EOF_
   echo #add a new line after the REST reply
-}
+  
+} # End: configure_heartbeat
+
 
 configure_metricbeat() {
   configure_common metricbeat
@@ -279,6 +304,8 @@ configure_metricbeat() {
   sudo metricbeat modules enable system beat docker
 
   # Create our metricbeat pipeline
+  # Doc Ref: https://www.elastic.co/guide/en/elasticsearch/reference/current/ingest.html
+  # Doc Ref: https://www.elastic.co/guide/en/elasticsearch/reference/current/pipeline-processor.html
   curl -u "$ES_CLOUD_AUTH" -X PUT "https://${ES_ELASRCH_HOST}.${ES_DOMAIN}:9243/_ingest/pipeline/metricbeat-in" -H 'Content-Type: application/json' -d@- <<_EOF_
 {
   "description": "Metricbeat ingest pipeline",
@@ -292,12 +319,16 @@ configure_metricbeat() {
 }
 _EOF_
   echo #add a new line after the REST reply
-}
+  
+} # End: configure_metricbeat
+
 
 configure_packetbeat() {
   configure_common packetbeat
 
   # Create our packetbeat pipeline
+  # Doc Ref: https://www.elastic.co/guide/en/elasticsearch/reference/current/ingest.html
+  # Doc Ref: https://www.elastic.co/guide/en/elasticsearch/reference/current/pipeline-processor.html
   curl -u "$ES_CLOUD_AUTH" -X PUT "https://${ES_ELASRCH_HOST}.${ES_DOMAIN}:9243/_ingest/pipeline/packetbeat-in" -H 'Content-Type: application/json' -d@- <<_EOF_
 {
   "description": "Packetbeat ingest pipeline",
@@ -311,11 +342,17 @@ configure_packetbeat() {
 }
 _EOF_
   echo #add a new line after the REST reply
-}
+  
+} # End: configure_packetbeat
+
 
 # Configure a pipeline to add GeoIP data to ECS common fields
-# Doc Ref: https://www.elastic.co/guide/en/beats/packetbeat/7.3/packetbeat-geoip.html
+# Doc Ref: https://www.elastic.co/guide/en/beats/packetbeat/current/packetbeat-geoip.html
+# or
 # Doc Ref: https://www.elastic.co/guide/en/beats/filebeat/current/filebeat-geoip.html
+# and
+# Doc Ref: https://www.elastic.co/guide/en/elasticsearch/reference/current/ingest.html
+# Doc Ref: https://www.elastic.co/guide/en/elasticsearch/reference/current/geoip-processor.html
 configure_geoip_pipeline() {
   curl -u "$ES_CLOUD_AUTH" -X PUT "https://${ES_ELASRCH_HOST}.${ES_DOMAIN}:9243/_ingest/pipeline/geoip-info" -H 'Content-Type: application/json' -d@- <<_EOF_
 {
@@ -361,7 +398,7 @@ configure_geoip_pipeline() {
 _EOF_
   echo #add a new line after the REST reply
 
-}
+} # End: configure_geoip_pipeline
 
 
 launch_via_systemd() {
@@ -369,7 +406,7 @@ launch_via_systemd() {
   sudo systemctl restart $1
 }
 
-##########################################################################
+###########################################################################
 # Script starts here
 #
 
@@ -378,7 +415,7 @@ install_on_$(lsb_release -is)
 
 configure_geoip_pipeline
 
-for beat in $BEATS2INSTALL; do
+for beat in $BEATS_LIST; do
 
   # Handle heartbeat having a package/service-name of heartbeat-elastic
   BEAT=${beat%-elastic}
