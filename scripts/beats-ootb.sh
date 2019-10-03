@@ -53,7 +53,12 @@ test -f es-ootb.conf || _fail "Config file es-ootb.conf missing"
 test -n "$ES_CLOUD_ID" || _fail "ES_CLOUD_ID missing from es-ootb.conf"
 test -n "$ES_CLOUD_AUTH" || _fail "ES_CLOUD_AUTH missing from es-ootb.conf"
 
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 # Unpack ES_CLOUD_ID
+# The second part of the cloud ID, after the first colon ':' is just
+# a base64 encoded string that contains the URLs for Elasticsearcha and Kibana
+# Beats understand cloud id native, and this makes configuring them very easy
+# however we need the plain URLs to use in some 'curl' commands below
 ES_CLOUD_INFO=$(echo ${ES_CLOUD_ID#*:} | base64 -d -)
 ES_DOMAIN=$(echo $ES_CLOUD_INFO | cut -d $ -f1)
 ES_ELASRCH_HOST=$(echo $ES_CLOUD_INFO | cut -d $ -f2)
@@ -69,10 +74,13 @@ test -S /var/run/docker.sock && CONFIGURE4DOCKER=1
 
 ##### Installation ######
 
-# As per: https://www.elastic.co/guide/en/beats/metricbeat/current/setup-repositories.html
+
 install_on_Debian() {
 
+  # Test if we already added the elastic repository, and add it if not
   if ! test -f /etc/apt/sources.list.d/elastic-7.x.list ; then
+  
+    # Doc Ref: https://www.elastic.co/guide/en/beats/metricbeat/current/setup-repositories.html
     sudo DEBIAN_FRONTEND=noninteractive apt-get -y install apt-transport-https ca-certificates
   
     curl -fsSL https://artifacts.elastic.co/GPG-KEY-elasticsearch | sudo apt-key add -
@@ -83,6 +91,7 @@ install_on_Debian() {
     sudo apt-get update
   fi
   
+  # Install our list of beats
   sudo DEBIAN_FRONTEND=noninteractive apt-get -y install $BEATS_LIST
   
 } # End: install_on_Debian
@@ -92,10 +101,12 @@ install_on_Debian() {
 install_on_Ubuntu() { install_on_Debian; }
 
 
-# As per: https://www.elastic.co/guide/en/beats/metricbeat/current/setup-repositories.html
 install_on_CentOS() {
 
+  # Test if we already added the elastic repository, and add it if not
   if ! test -f /etc/yum.repos.d/elastic.repo ; then
+  
+    # Doc Ref: https://www.elastic.co/guide/en/beats/metricbeat/current/setup-repositories.html
     sudo rpm --import https://packages.elastic.co/GPG-KEY-elasticsearch
   
     cat <<_EOF_ |
@@ -113,6 +124,7 @@ _EOF_
     #sudo yum repolist
   fi
 
+  # Install our list of beats
   sudo yum -y install $BEATS_LIST
   
 } # End: install_on_CentOS
@@ -137,7 +149,9 @@ configure_common() {
   sudo cp "${BEAT_CONF}.original" "${BEAT_CONF}"
 
   # Append the following config snipet to the beat config file via sudo
-  # NOTE each beat will create an ingest pipeline called "beatname-in"
+  # NOTE for each beat we will create an ingest pipeline called "beatname-in"
+  # This "cat | sudo tee" construct is a way to write to a privileged file from a
+  # non-privileged user, you will see this a lot in this script!
   cat <<_EOF_ |
 
 ## OOTB script appended all below here ##
@@ -153,6 +167,11 @@ output.elasticsearch.pipeline: "${1}-in"
 monitoring:
   enabled: true
 
+# This should be last, so that beat specific config can append to it
+processors:
+- add_host_metadata:
+    netinfo.enabled: true
+- add_cloud_metadata: ~
 _EOF_
   sudo tee -a "$BEAT_CONF" >/dev/null
   
@@ -185,11 +204,15 @@ _EOF_
 configure_filebeat() {
   configure_common filebeat
 
-  # Most none default config setting related to monitoring docker containers
+  # Most none default config settings are related to monitoring docker containers
+  # So we only apply them if docker appears to be installed and running
   if [ -n "$CONFIGURE4DOCKER" ]; then
   
     # Repeated yaml entries completly overwrite/replace previous entries; so filebeat.inputs here overrides any previous configuration
     cat <<_EOF_ |
+# Doc Ref: https://www.elastic.co/guide/en/beats/filebeat/current/add-docker-metadata.html
+- add_docker_metadata: ~
+
 filebeat.inputs:
 # Doc Ref: https://www.elastic.co/guide/en/beats/filebeat/current/filebeat-input-container.html
 - type: container
@@ -198,12 +221,6 @@ filebeat.inputs:
 #  json.keys_under_root: true
 #  json.add_error_key: true
 #  json.message_key: log
-
-# Doc Ref: https://www.elastic.co/guide/en/beats/filebeat/current/add-docker-metadata.html
-processors:
-  - add_docker_metadata: ~
-  - add_host_metadata: ~
-  - add_cloud_metadata: ~
 
 _EOF_
     sudo tee -a /etc/filebeat/filebeat.yml >/dev/null
@@ -256,6 +273,12 @@ _EOF_
 configure_heartbeat() {
   configure_common heartbeat
 
+  cat <<_EOF_ |
+- add_observer_metadata:
+    netinfo.enabled: true
+_EOF_
+  sudo tee -a /etc/heartbeat/heartbeat.yml >/dev/null
+  
   # Configure heartbeat to automatically monitor any container network endpoints
   # Without docker the default heartbeat monitor is localhost:9200, which likely does not exist
   if [ -n "$CONFIGURE4DOCKER" ]; then
@@ -264,6 +287,9 @@ configure_heartbeat() {
     
     # single quote ' _EOF_ to disable shell substituion, otherwise bash will complain about ${data.host}, etc.
     cat <<_EOF_ |
+# Doc Ref: https://www.elastic.co/guide/en/beats/heartbeat/current/add-docker-metadata.html
+- add_docker_metadata: ~
+
 # Disable previously configured monitors
 heartbeat.monitors: ~
 
@@ -280,11 +306,6 @@ heartbeat.autodiscover:
             hosts: ["\${data.host}:\${data.port}"]
             schedule: "@every 10s"
             timeout: 1s
-
-# Doc Ref: https://www.elastic.co/guide/en/beats/heartbeat/current/add-docker-metadata.html
-processors:
-- add_observer_metadata: ~
-- add_docker_metadata: ~
 
 _EOF_
     sudo tee -a /etc/heartbeat/heartbeat.yml >/dev/null
@@ -402,8 +423,15 @@ configure_geoip_pipeline() {
     },
     {
       "geoip": {
-        "field": "host.ip",
-        "target_field": "host.geo",
+        "field": "observer.ip",
+        "target_field": "observer.geo",
+        "ignore_missing": true
+      }
+    },
+    {
+      "geoip": {
+        "field": "monitor.ip",
+        "target_field": "monitor.geo",
         "ignore_missing": true
       }
     }
@@ -411,6 +439,15 @@ configure_geoip_pipeline() {
 }
 _EOF_
   echo #add a new line after the REST reply
+  
+# TODO Add geoip for host.ip once we have a solution for multiple IPs
+#     {
+#       "geoip": {
+#         "field": "host.ip",
+#         "target_field": "host.geo",
+#         "ignore_missing": true
+#       }
+#     },
 
 } # End: configure_geoip_pipeline
 

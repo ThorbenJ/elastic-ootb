@@ -75,7 +75,7 @@ install_on_RHEL() { install_on_CentOS; }
 # Doc Ref: https://www.elastic.co/guide/en/apm/agent/java/current/setup-attach-cli.html
 fetch_apm_agent() {
 
-  # The version of mvn on CentOS is too old, so one needs to use an explicit version
+  # The version of mvn on CentOS is too old, so one needs to use an explicit plugin version
   #mvn dependency:get -Dartifact=co.elastic.apm:apm-agent-attach:LATEST:jar:standalone >&2
   mvn org.apache.maven.plugins:maven-dependency-plugin:2.10:get \
      -Dartifact=co.elastic.apm:apm-agent-attach:LATEST:jar:standalone >&2
