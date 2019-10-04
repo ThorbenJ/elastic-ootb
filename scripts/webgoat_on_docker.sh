@@ -33,6 +33,14 @@ for c in curl sudo lsb_release; do
 done
 
 WEBGOAT_DC_FILE=webgoat-doc-comp.yml
+APACHE_WEBGOAT_CONF='
+ProxyPass "/webgoat/" "http://localhost:8080/WebGoat/"
+ProxyPass "/WebGoat/" "http://localhost:8080/WebGoat/"
+ProxyPassReverse "/WebGoat/" "http://localhost:8080/WebGoat/"
+ProxyPass "/webwolf/" "http://localhost:9090/WebWolf/"
+ProxyPass "/WebWolf/" "http://localhost:9090/WebWolf/"
+ProxyPassReverse "/WebWolf/" "http://localhost:9090/WebWolf/"
+'
 
 # Read config variables
 test -f es-ootb.conf || _fail "Config file es-ootb.conf missing"
@@ -41,6 +49,16 @@ test -f es-ootb.conf || _fail "Config file es-ootb.conf missing"
 ###############################################################
 # Functions
 #
+
+launch_via_systemd() {
+  sudo systemctl enable $1
+  sudo systemctl start $1
+}
+
+relaunch_via_systemd() {
+  sudo systemctl enable $1
+  sudo systemctl restart $1
+}
 
 ##### Installation ######
 
@@ -61,6 +79,16 @@ install_on_Debian() {
   
   sudo DEBIAN_FRONTEND=noninteractive apt-get -y install \
     docker-ce docker-ce-cli containerd.io docker-compose
+    
+  # Install apache as reverse proxy (and log source =)
+  sudo DEBIAN_FRONTEND=noninteractive apt-get -y install \
+    apache2
+    
+  sudo a2enmod proxy_http
+  
+  echo "$APACHE_WEBGOAT_CONF" | sudo tee /etc/apache2/conf-enabled/webgoat.conf >/dev/null
+  
+  relaunch_via_systemd apache2
   
 } # End: install_on_Debian
 
@@ -85,6 +113,13 @@ install_on_CentOS() {
     sudo chmod +x /usr/local/bin/docker-compose
   fi
   
+  # Install apache as reverse proxy (and log source =)
+  sudo yum install -y httpd
+  
+  echo "$APACHE_WEBGOAT_CONF" | sudo tee /etc/httpd/conf.d/webgoat.conf >/dev/null
+  
+  relaunch_via_systemd httpd
+  
 } # End: install_on_CentOS
 
 # Not tested
@@ -102,11 +137,6 @@ configure_user(){
     exit 2
     
   fi
-}
-
-launch_via_systemd() {
-  sudo systemctl enable $1
-  sudo systemctl start $1
 }
 
 ################################################################
