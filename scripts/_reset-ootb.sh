@@ -56,6 +56,7 @@ remove_on_CentOS() {
     "https://download.docker.com/linux/centos/docker-ce.repo"
 
   sudo rm -f /etc/yum.repos.d/elastic.repo \
+    /etc/yum.repos.d/docker-ce.repo \
     /usr/local/bin/docker-compose
   
   sudo rm -rf /etc/httpd
