@@ -138,6 +138,7 @@ install_on_RHEL() { install_on_CentOS; }
 
 # Configuration for most beats
 configure_common() {
+  BEAT=$1
   BEAT_CONF="/etc/$1/$1.yml"
   test -f "$BEAT_CONF" || _fail "Beat config file missing: $BEAT_CONF"
 
@@ -148,20 +149,32 @@ configure_common() {
   # This avoids multiple executions from appending the same thing multiple times
   sudo cp "${BEAT_CONF}.original" "${BEAT_CONF}"
 
+  # Create keystore if it doesn't already exist
+  echo n | sudo $BEAT --path.config /etc/$BEAT keystore create
+  
+  # Doc Ref: https://www.elastic.co/guide/en/beats/metricbeat/current/configure-cloud-id.html
+  # Doc Ref: https://www.elastic.co/guide/en/beats/metricbeat/current/keystore.html
+  # It is recommend to keep credentials in in the keystore rather than config file
+#   echo $ES_CLOUD_ID | 
+#     sudo $BEAT --path.config /etc/$BEAT keystore add cloud.id --stdin --force
+#   echo $ES_CLOUD_AUTH | 
+#     sudo $BEAT --path.config /etc/$BEAT keystore add cloud.auth --stdin --force
+  
+  
   # Append the following config snipet to the beat config file via sudo
   # NOTE for each beat we will create an ingest pipeline called "beatname-in"
   # This "cat | sudo tee" construct is a way to write to a privileged file from a
   # non-privileged user, you will see this a lot in this script!
   cat <<_EOF_ |
 
-## OOTB script appended all below here ##
+##### OOTB script appended all below here #####
 
 # Doc ref: https://www.elastic.co/guide/en/beats/metricbeat/current/configure-cloud-id.html
 cloud.id: "$ES_CLOUD_ID"
 cloud.auth: "$ES_CLOUD_AUTH"
 
 # Doc Ref: https://www.elastic.co/guide/en/beats/metricbeat/current/elasticsearch-output.html#pipeline-option-es
-output.elasticsearch.pipeline: "${1}-in"
+output.elasticsearch.pipeline: "${BEAT}-in"
 
 # Doc ref: https://www.elastic.co/guide/en/beats/metricbeat/current/monitoring-internal-collection.html
 monitoring:
@@ -246,19 +259,19 @@ _EOF_
     },
     {
       "pipeline": {
-        "if": "ctx.fileset.name == 'iptables'",
+        "if": "ctx.fileset?.name == 'iptables' && ctx.agent?.version != null",
         "name": "filebeat-{{_ingest.agent.version}}-iptables-log-pipeline"
       }
     },
     {
       "pipeline": {
-        "if": "ctx.fileset.name == 'auth'",
+        "if": "ctx.fileset?.name == 'auth' && ctx.agent?.version != null",
         "name": "filebeat-{{_ingest.agent.version}}-system-auth-pipeline"
       }
     },
     {
       "pipeline": {
-        "if": "ctx.fileset.name == 'syslog'",
+        "if": "ctx.fileset?.name == 'syslog' && ctx.agent?.version != null",
         "name": "filebeat-{{_ingest.agent.version}}-system-syslog-pipeline"
       }
     }
@@ -441,6 +454,7 @@ _EOF_
   echo #add a new line after the REST reply
   
 # TODO Add geoip for host.ip once we have a solution for multiple IPs
+# See: https://github.com/elastic/elasticsearch/issues/46193
 #     {
 #       "geoip": {
 #         "field": "host.ip",
