@@ -51,9 +51,6 @@ remove_on_CentOS() {
     docker-ce docker-ce-cli containerd.io httpd maven
   
   sudo yum autoremove -y
-  
-  sudo yum-config-manager --del-repo \
-    "https://download.docker.com/linux/centos/docker-ce.repo"
 
   sudo rm -f /etc/yum.repos.d/elastic.repo \
     /etc/yum.repos.d/docker-ce.repo \
@@ -70,13 +67,21 @@ remove_on_RHEL() { remove_on_CentOS ; }
 ########################################################
 # Script
 
-docker-compose -f "$WEBGOAT_DC_FILE" rm -fsv
+if [ -x $(which docker-compose) ]; then
+  docker-compose -f "$WEBGOAT_DC_FILE" rm -fsv || true
+fi
 
 test -n "$HOME" && rm -rf "$HOME/.m2"
+
+# Beats packages don't stop their services when removed..
+for beat in $BEATS_LIST; do
+  sudo systemctl stop $beat || true
+  sudo systemctl disable $beat || true
+done
 
 remove_on_$(lsb_release -is)
 
 for beat in $BEATS_LIST; do
   BEAT=${beat%-elastic}
-  test -n "$BEAT" && rm -rf /etc/$BEAT
+  test -n "$BEAT" && sudo rm -rf /etc/$BEAT
 done
