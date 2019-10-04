@@ -241,7 +241,7 @@ _EOF_
   fi # End: IF Configure for docker
 
   # Doc Ref: https://www.elastic.co/guide/en/beats/filebeat/current/filebeat-modules.html
-  sudo filebeat modules enable system 
+  sudo filebeat modules enable system apache
 
   # Configure filebeat's ingest pipeline
   # NOTE some filebeat modules ship with their own ingest pipelines, for compatibility
