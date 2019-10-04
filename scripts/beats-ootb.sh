@@ -19,6 +19,10 @@
 # ES_CLOUD_ID="<YOUR CLOUD ID>"
 # ES_CLOUD_AUTH="<YOUR CLOUD AUTH>"
 #
+# Optionally you can give the private IP addresses seen by this host
+# a location by setting: (e.g. co-ords are Amsterdam)
+# ES_PRIVIP_LOCATION="52.3667:4.8945"
+#
 # Other variables in this script can be overriden by es-ootb.conf
 #
 
@@ -188,8 +192,10 @@ processors:
 _EOF_
   sudo tee -a "$BEAT_CONF" >/dev/null
   
+  #
   # Give private IP address a location for maps
   if [ -n "$ES_PRIVIP_LOCATION" ]; then
+  
       cat <<_EOF_ |
 - add_fields:
     when.network.source.ip: 'private'
@@ -207,8 +213,10 @@ _EOF_
     target: ''
 _EOF_
     sudo tee -a "$BEAT_CONF" >/dev/null
+    
   fi # Private IP location mapping
 
+  
 } # End: configure_common
 
 
@@ -454,20 +462,6 @@ configure_geoip_pipeline() {
         "target_field": "server.geo",
         "ignore_missing": true
       }
-    },
-    {
-      "geoip": {
-        "field": "observer.ip",
-        "target_field": "observer.geo",
-        "ignore_missing": true
-      }
-    },
-    {
-      "geoip": {
-        "field": "monitor.ip",
-        "target_field": "monitor.geo",
-        "ignore_missing": true
-      }
     }
   ]
 }
@@ -483,6 +477,20 @@ _EOF_
 #         "ignore_missing": true
 #       }
 #     },
+#     {
+#       "geoip": {
+#         "field": "observer.ip",
+#         "target_field": "observer.geo",
+#         "ignore_missing": true
+#       }
+#     },
+#     {
+#       "geoip": {
+#         "field": "monitor.ip",
+#         "target_field": "monitor.geo",
+#         "ignore_missing": true
+#       }
+#     }
 
 } # End: configure_geoip_pipeline
 
