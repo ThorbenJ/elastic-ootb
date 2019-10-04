@@ -259,19 +259,19 @@ _EOF_
     },
     {
       "pipeline": {
-        "if": "ctx.fileset?.name == 'iptables' && ctx.agent?.version != null",
+        "if": "ctx.agent?.version != null && ( ctx.fileset?.name == 'iptables' || ctx.event?.dataset == 'iptables.log' )",
         "name": "filebeat-{{_ingest.agent.version}}-iptables-log-pipeline"
       }
     },
     {
       "pipeline": {
-        "if": "ctx.fileset?.name == 'auth' && ctx.agent?.version != null",
+        "if": "ctx.agent?.version != null && ( ctx.fileset?.name == 'auth' || ctx.event?.dataset == 'system.auth' )",
         "name": "filebeat-{{_ingest.agent.version}}-system-auth-pipeline"
       }
     },
     {
       "pipeline": {
-        "if": "ctx.fileset?.name == 'syslog' && ctx.agent?.version != null",
+        "if": "ctx.agent?.version != null && ( ctx.fileset?.name == 'syslog' || ctx.event?.dataset == 'system.syslog' )",
         "name": "filebeat-{{_ingest.agent.version}}-system-syslog-pipeline"
       }
     }
@@ -488,7 +488,7 @@ for beat in $BEATS_LIST; do
   configure_$BEAT
 
   # Doc Ref: https://www.elastic.co/guide/en/beats/metricbeat/current/command-line-options.html#setup-command
-  test -n "$ES_BEAT_SKIP_SETUP" || sudo $BEAT setup
+  test -n "$ES_SKIP_BEAT_SETUP" || sudo $BEAT setup
 
   relaunch_via_systemd $beat #here we really want the service name
 done
