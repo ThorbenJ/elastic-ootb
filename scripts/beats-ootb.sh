@@ -193,21 +193,13 @@ _EOF_
   sudo tee -a "$BEAT_CONF" >/dev/null
   
   #
-  # Give private IP address a location for maps
+  # We will use the agent location for private IPs
   if [ -n "$ES_PRIVIP_LOCATION" ]; then
   
       cat <<_EOF_ |
 - add_fields:
-    when.network.source.ip: 'private'
     fields:
-      source.geo.location:
-        lat: ${ES_PRIVIP_LOCATION%:*}
-        lon: ${ES_PRIVIP_LOCATION#*:}
-    target: ''
-- add_fields:
-    when.network.destination.ip: 'private'
-    fields:
-      destination.geo.location:
+      agent.geo.location:
         lat: ${ES_PRIVIP_LOCATION%:*}
         lon: ${ES_PRIVIP_LOCATION#*:}
     target: ''
@@ -424,42 +416,202 @@ _EOF_
 
 
 # Configure a pipeline to add GeoIP data to ECS common fields
-# Doc Ref: https://www.elastic.co/guide/en/beats/packetbeat/current/packetbeat-geoip.html
-# or
-# Doc Ref: https://www.elastic.co/guide/en/beats/filebeat/current/filebeat-geoip.html
-# and
-# Doc Ref: https://www.elastic.co/guide/en/elasticsearch/reference/current/ingest.html
-# Doc Ref: https://www.elastic.co/guide/en/elasticsearch/reference/current/geoip-processor.html
 configure_geoip_pipeline() {
+
+  #~~~~~~~~~~~~~~~~
+  # We will only run geoip on one (prefarably public) IP address
+  # So if the IP field is an array, we need to select one IP from it
+  #
+  # sed voodoo from: https://superuser.com/a/1296229
+  # """ is kibana magic we have to recreate; conver new lines to literal \n
+  SCRIPT=$(sed ':a;N;$!ba;s/\n/\\n/g' <<_EOF_
+if (!ctx.containsKey(params.field) || !ctx[params.field].containsKey('ip') ) {
+    return;
+}
+
+def ips = ctx[params.field].ip instanceof List ? ctx[params.field].ip : [ ctx[params.field].ip ];
+
+def site_ip = '';
+def public_ip =  '';
+
+// No RegEx, as they are disabled by default
+for ( def ip : ips ) {
+    // We don't deal with IPv6 yet..
+    if ( ip.indexOf(':') >= 0) {
+      continue
+    }
+    if ( ip.startsWith('127.')
+      || ip.startsWith('169.254.')
+    ) {
+      continue
+    }
+    if ( ip.startsWith('10.')
+      || ip.startsWith('192.168.')
+      || ip.startsWith('172.16.')
+      || ip.startsWith('172.17.')
+      || ip.startsWith('172.18.')
+      || ip.startsWith('172.19.')
+      || ip.startsWith('172.20.')
+      || ip.startsWith('172.21.')
+      || ip.startsWith('172.22.')
+      || ip.startsWith('172.23.')
+      || ip.startsWith('172.24.')
+      || ip.startsWith('172.25.')
+      || ip.startsWith('172.26.')
+      || ip.startsWith('172.27.')
+      || ip.startsWith('172.28.')
+      || ip.startsWith('172.29.')
+      || ip.startsWith('172.30.')
+      || ip.startsWith('172.31.')
+    ) {
+      site_ip = ip;
+    }
+    else {
+      public_ip = ip;
+    }
+}
+
+if ( public_ip != '') {
+    ctx[params.field]._geo_ip = public_ip;
+}
+else if ( site_ip != '') {
+    ctx[params.field]._geo_ip = site_ip;
+    
+    if ( ctx.containsKey('agent') && ctx.agent.containsKey('geo') ) {
+        ctx[params.field].geo = ctx.agent.geo;
+    }
+}
+_EOF_
+)
+
+  # Doc Ref: https://www.elastic.co/guide/en/elasticsearch/reference/current/modules-scripting-using.html
+  # Doc Ref: https://www.elastic.co/guide/en/elasticsearch/painless/current/painless-guide.html
+  curl -u "$ES_CLOUD_AUTH" -X PUT "https://${ES_ELASRCH_HOST}.${ES_DOMAIN}:9243/_scripts/pick_geoip" -H 'Content-Type: application/json' -d@- <<_EOF_
+{
+  "script": {
+    "lang": "painless",
+    "source": "$SCRIPT"
+  }
+}
+_EOF_
+
+  #~~~~~~~~~~~~~~~~~~~~~~~`
+  # We first use our pick_geoip script and then apply the geoip processor on the chosen IP
+  #
+  # Doc Ref: https://www.elastic.co/guide/en/beats/packetbeat/current/packetbeat-geoip.html
+  # or
+  # Doc Ref: https://www.elastic.co/guide/en/beats/filebeat/current/filebeat-geoip.html
+  # and
+  # Doc Ref: https://www.elastic.co/guide/en/elasticsearch/reference/current/ingest.html
+  # Doc Ref: https://www.elastic.co/guide/en/elasticsearch/reference/current/geoip-processor.html
+  # Doc Ref: https://www.elastic.co/guide/en/elasticsearch/reference/current/script-processor.html
+  #
   curl -u "$ES_CLOUD_AUTH" -X PUT "https://${ES_ELASRCH_HOST}.${ES_DOMAIN}:9243/_ingest/pipeline/geoip-info" -H 'Content-Type: application/json' -d@- <<_EOF_
 {
   "description": "Add geoip info",
   "processors": [
     {
+      "script": {
+        "id": "pick_geoip",
+        "params": {
+          "field": "client"
+        }
+      }
+    },
+    {
       "geoip": {
-        "field": "client.ip",
+        "field": "client._geo_ip",
         "target_field": "client.geo",
         "ignore_missing": true
       }
     },
     {
+      "script": {
+        "id": "pick_geoip",
+        "params": {
+          "field": "source"
+        }
+      }
+    },
+    {
       "geoip": {
-        "field": "source.ip",
+        "field": "source._geo_ip",
         "target_field": "source.geo",
         "ignore_missing": true
       }
     },
     {
+      "script": {
+        "id": "pick_geoip",
+        "params": {
+          "field": "destination"
+        }
+      }
+    },
+    {
       "geoip": {
-        "field": "destination.ip",
+        "field": "destination._geo_ip",
         "target_field": "destination.geo",
         "ignore_missing": true
       }
     },
     {
+      "script": {
+        "id": "pick_geoip",
+        "params": {
+          "field": "server"
+        }
+      }
+    },
+    {
       "geoip": {
-        "field": "server.ip",
+        "field": "server._geo_ip",
         "target_field": "server.geo",
+        "ignore_missing": true
+      }
+    },
+    {
+      "script": {
+        "id": "pick_geoip",
+        "params": {
+          "field": "host"
+        }
+      }
+    },
+    {
+      "geoip": {
+        "field": "host._geo_ip",
+        "target_field": "host.geo",
+        "ignore_missing": true
+      }
+    },
+    {
+      "script": {
+        "id": "pick_geoip",
+        "params": {
+          "field": "observer"
+        }
+      }
+    },
+    {
+      "geoip": {
+        "field": "observer._geo_ip",
+        "target_field": "observer.geo",
+        "ignore_missing": true
+      }
+    },
+    {
+      "script": {
+        "id": "pick_geoip",
+        "params": {
+          "field": "monitor"
+        }
+      }
+    },
+    {
+      "geoip": {
+        "field": "monitor._geo_ip",
+        "target_field": "monitor.geo",
         "ignore_missing": true
       }
     }
@@ -467,30 +619,6 @@ configure_geoip_pipeline() {
 }
 _EOF_
   echo #add a new line after the REST reply
-  
-# TODO Add geoip for host.ip once we have a solution for multiple IPs
-# See: https://github.com/elastic/elasticsearch/issues/46193
-#     {
-#       "geoip": {
-#         "field": "host.ip",
-#         "target_field": "host.geo",
-#         "ignore_missing": true
-#       }
-#     },
-#     {
-#       "geoip": {
-#         "field": "observer.ip",
-#         "target_field": "observer.geo",
-#         "ignore_missing": true
-#       }
-#     },
-#     {
-#       "geoip": {
-#         "field": "monitor.ip",
-#         "target_field": "monitor.geo",
-#         "ignore_missing": true
-#       }
-#     }
 
 } # End: configure_geoip_pipeline
 
