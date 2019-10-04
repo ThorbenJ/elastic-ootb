@@ -56,8 +56,8 @@ test -n "$ES_CLOUD_AUTH" || _fail "ES_CLOUD_AUTH missing from es-ootb.conf"
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 # Unpack ES_CLOUD_ID
 # The second part of the cloud ID, after the first colon ':' is just
-# a base64 encoded string that contains the URLs for Elasticsearcha and Kibana
-# Beats understand cloud id native, and this makes configuring them very easy
+# a base64 encoded string that contains the URLs for Elasticsearch and Kibana
+# Beats understand cloud id natively, and this makes configuring them very easy
 # however we need the plain URLs to use in some 'curl' commands below
 ES_CLOUD_INFO=$(echo ${ES_CLOUD_ID#*:} | base64 -d -)
 ES_DOMAIN=$(echo $ES_CLOUD_INFO | cut -d $ -f1)
