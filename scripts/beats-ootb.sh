@@ -188,6 +188,27 @@ processors:
 _EOF_
   sudo tee -a "$BEAT_CONF" >/dev/null
   
+  # Give private IP address a location for maps
+  if [ -n "$ES_PRIVIP_LOCATION" ]; then
+      cat <<_EOF_ |
+- add_fields:
+    when.network.source.ip: 'private'
+    fields:
+      source.geo.location:
+        lat: ${ES_PRIVIP_LOCATION%:*}
+        lon: ${ES_PRIVIP_LOCATION#*:}
+    target: ''
+- add_fields:
+    when.network.destination.ip: 'private'
+    fields:
+      destination.geo.location:
+        lat: ${ES_PRIVIP_LOCATION%:*}
+        lon: ${ES_PRIVIP_LOCATION#*:}
+    target: ''
+_EOF_
+    sudo tee -a "$BEAT_CONF" >/dev/null
+  fi # Private IP location mapping
+
 } # End: configure_common
 
 
