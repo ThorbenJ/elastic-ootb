@@ -21,7 +21,7 @@
 #
 # Optionally you can give the private IP addresses seen by this host
 # a location by setting: (e.g. co-ords are Amsterdam)
-# ES_PRIVIP_LOCATION="52.3667:4.8945"
+# ES_SITE_LOCATION="52.3667:4.8945"
 #
 # Other variables in this script can be overriden by es-ootb.conf
 #
@@ -194,14 +194,14 @@ _EOF_
   
   #
   # We will use the agent location for private IPs
-  if [ -n "$ES_PRIVIP_LOCATION" ]; then
+  if [ -n "$ES_SITE_LOCATION" ]; then
   
       cat <<_EOF_ |
 - add_fields:
     fields:
       agent.geo.location:
-        lat: ${ES_PRIVIP_LOCATION%:*}
-        lon: ${ES_PRIVIP_LOCATION#*:}
+        lat: ${ES_SITE_LOCATION%:*}
+        lon: ${ES_SITE_LOCATION#*:}
     target: ''
 _EOF_
     sudo tee -a "$BEAT_CONF" >/dev/null
