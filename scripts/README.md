@@ -11,20 +11,20 @@ See accompanying slides pdf for details on their usage/prupose. (TODO)
 You will need:
  - An Elastic Cloud (trial) account on https://cloud.elastic.co
  - The slides pdf as a step by step guide
- - At least one VM running: Debian or CentOS (should also work for Ubunto or RHEL)
+ - At least one VM running: Debian or CentOS (should also work for Ubuntu or RHEL)
  - A normal user that can sudo
  - The lsb_release and curl commands installed (see scripts for details)
 
 ### Installing
 
-Create and cd to a suitable director (under a normal user), and git clone this repository.
-Then cd to elastic-ootb/scripts and execute the scripts as given in the slides.
+Create and cd to a suitable directory (under a normal user), then git clone this repository.
+Next cd to elastic-ootb/scripts and execute the scripts as described in the slides.
 
 ## Running the tests
 
 You can use the _reset-ootb.sh script to remove everything the other scripts installed/created.
 Use this with care it may remove more than you want it to, it may also leave some things behind.
-This script is inteded for repeat testing of the other scripts. VM snapshot would be a better alternative to _reset-ootb.sh.
+This script is inteded for repeat testing of the other scripts. VM snapshots would be a better alternative to _reset-ootb.sh.
 
 ## Deployment
 
@@ -41,7 +41,7 @@ No versioning of the script themselves, use as-is. They are writen in a way that
 
 ## Authors
 
-Thorben Jändling <thorbenj@users.noreply.github.com>
+Thorben Jändling <<thorbenj@users.noreply.github.com>>
 
 ## License
 

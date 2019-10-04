@@ -22,7 +22,7 @@ No versioning of the script themselves, use as-is. They are writen in a way that
 
 ## Authors
 
-Thorben Jändling <thorbenj@users.noreply.github.com>
+Thorben Jändling <<thorbenj@users.noreply.github.com>>
 
 ## License
 
