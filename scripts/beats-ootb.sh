@@ -20,7 +20,7 @@
 # ES_CLOUD_AUTH="<YOUR CLOUD AUTH>"
 #
 # Optionally you can give the private IP addresses seen by this host
-# a location by setting: (e.g. co-ords are Amsterdam)
+# a location by setting: (the example shown are Amsterdams co-ords)
 # ES_SITE_LOCATION="52.3667:4.8945"
 #
 # Other variables in this script can be overriden by es-ootb.conf
@@ -32,7 +32,7 @@ unset LANG LC_CTYPE LC_ALL
 # Print the commands this script is executing
 set -x
 
-# Stop script if any command returns an error
+# Stop script if any command returns an (unhandled) error
 set -e
 
 # List of beats to install and configure
@@ -70,7 +70,8 @@ ES_KIBANA_HOST=$(echo $ES_CLOUD_INFO | cut -d $ -f3)
 
 # Will we configure beats to monitor a docker host?
 CONFIGURE4DOCKER=
-test -S /var/run/docker.sock && CONFIGURE4DOCKER=1
+ps -A | grep -v grep | grep -q dockerd && RC=0 || RC=$?  #Remember set -e
+test "$RC" = "0" -a -S /var/run/docker.sock && CONFIGURE4DOCKER=1
 
 ###############################################################
 # Functions
@@ -112,7 +113,9 @@ install_on_CentOS() {
   
     # Doc Ref: https://www.elastic.co/guide/en/beats/metricbeat/current/setup-repositories.html
     sudo rpm --import https://packages.elastic.co/GPG-KEY-elasticsearch
-  
+
+    # This "cat | sudo tee" construct is a way to write to a privileged files from a
+    # non-privileged user, you will see this a lot in this script!
     cat <<_EOF_ |
 [elastic-7.x]
 name=Elastic repository for 7.x packages
@@ -167,8 +170,6 @@ configure_common() {
   
   # Append the following config snipet to the beat config file via sudo
   # NOTE for each beat we will create an ingest pipeline called "beatname-in"
-  # This "cat | sudo tee" construct is a way to write to a privileged file from a
-  # non-privileged user, you will see this a lot in this script!
   cat <<_EOF_ |
 
 ##### OOTB script appended all below here #####
@@ -184,7 +185,7 @@ output.elasticsearch.pipeline: "${BEAT}-in"
 monitoring:
   enabled: true
 
-# This should be last, so that beat specific config can append to it
+# Prcessors should be last, so that beat specific configs (below) can append to it
 processors:
 - add_host_metadata:
     netinfo.enabled: true
@@ -193,7 +194,7 @@ _EOF_
   sudo tee -a "$BEAT_CONF" >/dev/null
   
   #
-  # We will use the agent location for private IPs
+  # We will use the agent location for private IPs (if available)
   if [ -n "$ES_SITE_LOCATION" ]; then
   
       cat <<_EOF_ |
@@ -206,7 +207,7 @@ _EOF_
 _EOF_
     sudo tee -a "$BEAT_CONF" >/dev/null
     
-  fi # Private IP location mapping
+  fi # IF site location set
 
   
 } # End: configure_common
@@ -215,7 +216,10 @@ _EOF_
 configure_auditbeat() {
   configure_common auditbeat
 
-  # Configure auditbeat to use our (ECS) geoip pipeline
+  # Skip if we're not to setup elasticsearch & kibana
+  test -n "$ES_SKIP_SETUP_STEPS" && return
+  
+  # Configure the auditbeat pipeline
   # Doc Ref: https://www.elastic.co/guide/en/elasticsearch/reference/current/ingest.html
   # Doc Ref: https://www.elastic.co/guide/en/elasticsearch/reference/current/pipeline-processor.html
   curl -u "$ES_CLOUD_AUTH" -X PUT "https://${ES_ELASRCH_HOST}.${ES_DOMAIN}:9243/_ingest/pipeline/auditbeat-in" -H 'Content-Type: application/json' -d@- <<_EOF_
@@ -264,9 +268,12 @@ _EOF_
   # Doc Ref: https://www.elastic.co/guide/en/beats/filebeat/current/filebeat-modules.html
   sudo filebeat modules enable system apache
 
+  # Skip if we're not to setup elasticsearch & kibana
+  test -n "$ES_SKIP_SETUP_STEPS" && return
+  
   # Configure filebeat's ingest pipeline
   # NOTE some filebeat modules ship with their own ingest pipelines, for compatibility
-  # we try to redirect to those pipelines
+  # we try to redirect to those pipelines, allowing us to also include ours
   # Doc Ref: https://www.elastic.co/guide/en/elasticsearch/reference/current/ingest.html
   # Doc Ref: https://www.elastic.co/guide/en/elasticsearch/reference/current/pipeline-processor.html
   curl -u "$ES_CLOUD_AUTH" -X PUT "https://${ES_ELASRCH_HOST}.${ES_DOMAIN}:9243/_ingest/pipeline/filebeat-in" -H 'Content-Type: application/json' -d@- <<_EOF_
@@ -280,19 +287,67 @@ _EOF_
     },
     {
       "pipeline": {
-        "if": "ctx.agent?.version != null && ( ctx.fileset?.name == 'iptables' || ctx.event?.dataset == 'iptables.log' )",
-        "name": "filebeat-{{_ingest.agent.version}}-iptables-log-pipeline"
+        "if": "ctx.agent?.version != null && ctx.event?.dataset == 'nginx.error'",
+        "name": "filebeat-{{_ingest.agent.version}}-nginx-error-pipeline"
       }
     },
     {
       "pipeline": {
-        "if": "ctx.agent?.version != null && ( ctx.fileset?.name == 'auth' || ctx.event?.dataset == 'system.auth' )",
+        "if": "ctx.agent?.version != null && ctx.event?.dataset == 'mysql.error' ",
+        "name": "filebeat-{{_ingest.agent.version}}-mysql-error-pipeline"
+      }
+    },
+    {
+      "pipeline": {
+        "if": "ctx.agent?.version != null && ctx.event?.dataset == 'nginx.access'",
+        "name": "filebeat-{{_ingest.agent.version}}-nginx-access-default"
+      }
+    },
+    {
+      "pipeline": {
+        "if": "ctx.agent?.version != null && ctx.event?.dataset == 'osquery.result'",
+        "name": "filebeat-{{_ingest.agent.version}}-osquery-result-pipeline"
+      }
+    },
+    {
+      "pipeline": {
+        "if": "ctx.agent?.version != null && ctx.event?.dataset == 'system.auth'",
         "name": "filebeat-{{_ingest.agent.version}}-system-auth-pipeline"
       }
     },
     {
       "pipeline": {
-        "if": "ctx.agent?.version != null && ( ctx.fileset?.name == 'syslog' || ctx.event?.dataset == 'system.syslog' )",
+        "if": "ctx.agent?.version != null && ctx.event?.dataset == 'mysql.slowlog'",
+        "name": "filebeat-{{_ingest.agent.version}}-mysql-slowlog-pipeline"
+      }
+    },
+    {
+      "pipeline": {
+        "if": "ctx.agent?.version != null && ctx.event?.dataset == 'iptables.log'",
+        "name": "filebeat-{{_ingest.agent.version}}-iptables-log-pipeline"
+      }
+    },
+    {
+      "pipeline": {
+        "if": "ctx.agent?.version != null && ctx.event?.dataset == 'suricata.eve'",
+        "name": "filebeat-{{_ingest.agent.version}}-suricata-eve-pipeline"
+      }
+    },
+    {
+      "pipeline": {
+        "if": "ctx.agent?.version != null && ctx.event?.dataset == 'logstash.slowlog'",
+        "name": "filebeat-{{_ingest.agent.version}}-logstash-slowlog-pipeline-plain"
+      }
+    },
+    {
+      "pipeline": {
+        "if": "ctx.agent?.version != null && ctx.event?.dataset == 'logstash.log'",
+        "name": "filebeat-{{_ingest.agent.version}}-logstash-log-pipeline-plain"
+      }
+    },
+    {
+      "pipeline": {
+        "if": "ctx.agent?.version != null && ctx.event?.dataset == 'system.syslog'",
         "name": "filebeat-{{_ingest.agent.version}}-system-syslog-pipeline"
       }
     }
@@ -300,6 +355,19 @@ _EOF_
 }
 _EOF_
   echo #add a new line after the REST reply
+
+## List of these seen so far...
+#   filebeat-7.4.0-nginx-error-pipeline
+#   filebeat-7.4.0-mysql-error-pipeline
+#   filebeat-7.4.0-nginx-access-default
+#   filebeat-7.4.0-osquery-result-pipeline
+#   filebeat-7.4.0-system-auth-pipeline
+#   filebeat-7.4.0-mysql-slowlog-pipeline
+#   filebeat-7.4.0-iptables-log-pipeline
+#   filebeat-7.4.0-suricata-eve-pipeline
+#   filebeat-7.4.0-logstash-slowlog-pipeline-plain
+#   filebeat-7.4.0-logstash-log-pipeline-plain
+#   filebeat-7.4.0-system-syslog-pipeline
   
 } # End: configure_filebeat
 
@@ -307,13 +375,15 @@ _EOF_
 configure_heartbeat() {
   configure_common heartbeat
 
+  # Add details of the heartbeat agent
   cat <<_EOF_ |
+# Doc Ref: https://www.elastic.co/guide/en/beats/heartbeat/current/add-observer-metadata.html
 - add_observer_metadata:
     netinfo.enabled: true
 _EOF_
   sudo tee -a /etc/heartbeat/heartbeat.yml >/dev/null
   
-  # Configure heartbeat to automatically monitor any container network endpoints
+  # Configure heartbeat to automatically monitor any container network endpoint
   # Without docker the default heartbeat monitor is localhost:9200, which likely does not exist
   if [ -n "$CONFIGURE4DOCKER" ]; then
   
@@ -346,6 +416,9 @@ _EOF_
 
   fi # End: IF Configure for docker
 
+  # Skip if we're not to setup elasticsearch & kibana
+  test -n "$ES_SKIP_SETUP_STEPS" && return
+  
   # Create our heartbeat pipeline
   # Doc Ref: https://www.elastic.co/guide/en/elasticsearch/reference/current/ingest.html
   # Doc Ref: https://www.elastic.co/guide/en/elasticsearch/reference/current/pipeline-processor.html
@@ -372,6 +445,9 @@ configure_metricbeat() {
   # Doc Ref: https://www.elastic.co/guide/en/beats/metricbeat/current/metricbeat-modules.html
   sudo metricbeat modules enable system beat docker
 
+  # Skip if we're not to setup elasticsearch & kibana
+  test -n "$ES_SKIP_SETUP_STEPS" && return
+  
   # Create our metricbeat pipeline
   # Doc Ref: https://www.elastic.co/guide/en/elasticsearch/reference/current/ingest.html
   # Doc Ref: https://www.elastic.co/guide/en/elasticsearch/reference/current/pipeline-processor.html
@@ -395,6 +471,9 @@ _EOF_
 configure_packetbeat() {
   configure_common packetbeat
 
+  # Skip if we're not to setup elasticsearch & kibana
+  test -n "$ES_SKIP_SETUP_STEPS" && return
+  
   # Create our packetbeat pipeline
   # Doc Ref: https://www.elastic.co/guide/en/elasticsearch/reference/current/ingest.html
   # Doc Ref: https://www.elastic.co/guide/en/elasticsearch/reference/current/pipeline-processor.html
@@ -418,6 +497,9 @@ _EOF_
 # Configure a pipeline to add GeoIP data to ECS common fields
 configure_geoip_pipeline() {
 
+  # Skip if we're not to setup elasticsearch & kibana
+  test -n "$ES_SKIP_SETUP_STEPS" && return
+  
   #~~~~~~~~~~~~~~~~
   # We will only run geoip on one (prefarably public) IP address
   # So if the IP field is an array, we need to select one IP from it
@@ -645,7 +727,7 @@ for beat in $BEATS_LIST; do
   configure_$BEAT
 
   # Doc Ref: https://www.elastic.co/guide/en/beats/metricbeat/current/command-line-options.html#setup-command
-  test -n "$ES_SKIP_BEAT_SETUP" || sudo $BEAT setup
+  test -n "$ES_SKIP_SETUP_STEPS" || sudo $BEAT setup
 
   relaunch_via_systemd $beat #here we really want the service name
 done

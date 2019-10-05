@@ -67,11 +67,12 @@ remove_on_RHEL() { remove_on_CentOS ; }
 ########################################################
 # Script
 
-if [ -x $(which docker-compose) ]; then
+if [ -x $(which docker-compose) -a -f "$WEBGOAT_DC_FILE" ]; then
   docker-compose -f "$WEBGOAT_DC_FILE" rm -fsv || true
 fi
 
 test -n "$HOME" && rm -rf "$HOME/.m2"
+test -f "$WEBGOAT_DC_FILE" && rm -f "$WEBGOAT_DC_FILE"
 
 # Beats packages don't stop their services when removed..
 for beat in $BEATS_LIST; do
@@ -85,3 +86,6 @@ for beat in $BEATS_LIST; do
   BEAT=${beat%-elastic}
   test -n "$BEAT" && sudo rm -rf /etc/$BEAT
 done
+
+test -f es-ootb.conf && mv es-ootb.conf "es-ootb.conf-$(date +%F)"
+
