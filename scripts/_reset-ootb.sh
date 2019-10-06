@@ -87,5 +87,12 @@ for beat in $BEATS_LIST; do
   test -n "$BEAT" && sudo rm -rf /etc/$BEAT
 done
 
-test -f es-ootb.conf && mv es-ootb.conf "es-ootb.conf-$(date +%F)"
-
+if [ -f "es-ootb.conf" ]; then
+  BAK="es-ootb.conf-$(date +%F)"
+  # Don't overwrite the backup copy, just clear the old conf
+  if [ -f $BAK ]; then
+    echo -n >"es-ootb.conf"
+  else
+    mv "es-ootb.conf" "$BAK"
+  fi
+fi
