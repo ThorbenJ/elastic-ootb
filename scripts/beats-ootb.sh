@@ -443,7 +443,7 @@ configure_metricbeat() {
   configure_common metricbeat
 
   # Doc Ref: https://www.elastic.co/guide/en/beats/metricbeat/current/metricbeat-modules.html
-  sudo metricbeat modules enable system beat docker
+  sudo metricbeat modules enable system apache docker
 
   # Skip if we're not to setup elasticsearch & kibana
   test -n "$ES_SKIP_SETUP_STEPS" && return
