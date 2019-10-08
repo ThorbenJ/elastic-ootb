@@ -90,9 +90,6 @@ done
 if [ -f "es-ootb.conf" ]; then
   BAK="es-ootb.conf-$(date +%F)"
   # Don't overwrite the backup copy, just clear the old conf
-  if [ -f $BAK ]; then
-    echo -n >"es-ootb.conf"
-  else
-    mv "es-ootb.conf" "$BAK"
-  fi
+  test -f "$BAK" || mv "es-ootb.conf" "$BAK"
+  echo -n >"es-ootb.conf"
 fi

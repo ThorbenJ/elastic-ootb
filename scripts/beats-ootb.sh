@@ -222,7 +222,7 @@ configure_auditbeat() {
   # Configure the auditbeat pipeline
   # Doc Ref: https://www.elastic.co/guide/en/elasticsearch/reference/current/ingest.html
   # Doc Ref: https://www.elastic.co/guide/en/elasticsearch/reference/current/pipeline-processor.html
-  curl -u "$ES_CLOUD_AUTH" -X PUT "https://${ES_ELASRCH_HOST}.${ES_DOMAIN}:9243/_ingest/pipeline/auditbeat-in" -H 'Content-Type: application/json' -d@- <<_EOF_
+  curl -u "$ES_CLOUD_AUTH" -X PUT "https://${ES_ELASRCH_HOST}.${ES_DOMAIN}/_ingest/pipeline/auditbeat-in" -H 'Content-Type: application/json' -d@- <<_EOF_
 {
   "description": "Auditbeat ingest pipeline",
   "processors": [
@@ -276,7 +276,7 @@ _EOF_
   # we try to redirect to those pipelines, allowing us to also include ours
   # Doc Ref: https://www.elastic.co/guide/en/elasticsearch/reference/current/ingest.html
   # Doc Ref: https://www.elastic.co/guide/en/elasticsearch/reference/current/pipeline-processor.html
-  curl -u "$ES_CLOUD_AUTH" -X PUT "https://${ES_ELASRCH_HOST}.${ES_DOMAIN}:9243/_ingest/pipeline/filebeat-in" -H 'Content-Type: application/json' -d@- <<_EOF_
+  curl -u "$ES_CLOUD_AUTH" -X PUT "https://${ES_ELASRCH_HOST}.${ES_DOMAIN}/_ingest/pipeline/filebeat-in" -H 'Content-Type: application/json' -d@- <<_EOF_
 {
   "description": "Filebeat ingest pipeline",
   "processors": [
@@ -422,7 +422,7 @@ _EOF_
   # Create our heartbeat pipeline
   # Doc Ref: https://www.elastic.co/guide/en/elasticsearch/reference/current/ingest.html
   # Doc Ref: https://www.elastic.co/guide/en/elasticsearch/reference/current/pipeline-processor.html
-  curl -u "$ES_CLOUD_AUTH" -X PUT "https://${ES_ELASRCH_HOST}.${ES_DOMAIN}:9243/_ingest/pipeline/heartbeat-in" -H 'Content-Type: application/json' -d@- <<_EOF_
+  curl -u "$ES_CLOUD_AUTH" -X PUT "https://${ES_ELASRCH_HOST}.${ES_DOMAIN}/_ingest/pipeline/heartbeat-in" -H 'Content-Type: application/json' -d@- <<_EOF_
 {
   "description": "Heartbeat ingest pipeline",
   "processors": [
@@ -451,7 +451,7 @@ configure_metricbeat() {
   # Create our metricbeat pipeline
   # Doc Ref: https://www.elastic.co/guide/en/elasticsearch/reference/current/ingest.html
   # Doc Ref: https://www.elastic.co/guide/en/elasticsearch/reference/current/pipeline-processor.html
-  curl -u "$ES_CLOUD_AUTH" -X PUT "https://${ES_ELASRCH_HOST}.${ES_DOMAIN}:9243/_ingest/pipeline/metricbeat-in" -H 'Content-Type: application/json' -d@- <<_EOF_
+  curl -u "$ES_CLOUD_AUTH" -X PUT "https://${ES_ELASRCH_HOST}.${ES_DOMAIN}/_ingest/pipeline/metricbeat-in" -H 'Content-Type: application/json' -d@- <<_EOF_
 {
   "description": "Metricbeat ingest pipeline",
   "processors": [
@@ -477,7 +477,7 @@ configure_packetbeat() {
   # Create our packetbeat pipeline
   # Doc Ref: https://www.elastic.co/guide/en/elasticsearch/reference/current/ingest.html
   # Doc Ref: https://www.elastic.co/guide/en/elasticsearch/reference/current/pipeline-processor.html
-  curl -u "$ES_CLOUD_AUTH" -X PUT "https://${ES_ELASRCH_HOST}.${ES_DOMAIN}:9243/_ingest/pipeline/packetbeat-in" -H 'Content-Type: application/json' -d@- <<_EOF_
+  curl -u "$ES_CLOUD_AUTH" -X PUT "https://${ES_ELASRCH_HOST}.${ES_DOMAIN}/_ingest/pipeline/packetbeat-in" -H 'Content-Type: application/json' -d@- <<_EOF_
 {
   "description": "Packetbeat ingest pipeline",
   "processors": [
@@ -568,7 +568,7 @@ _EOF_
 
   # Doc Ref: https://www.elastic.co/guide/en/elasticsearch/reference/current/modules-scripting-using.html
   # Doc Ref: https://www.elastic.co/guide/en/elasticsearch/painless/current/painless-guide.html
-  curl -u "$ES_CLOUD_AUTH" -X PUT "https://${ES_ELASRCH_HOST}.${ES_DOMAIN}:9243/_scripts/pick_geoip" -H 'Content-Type: application/json' -d@- <<_EOF_
+  curl -u "$ES_CLOUD_AUTH" -X PUT "https://${ES_ELASRCH_HOST}.${ES_DOMAIN}/_scripts/pick_geoip" -H 'Content-Type: application/json' -d@- <<_EOF_
 {
   "script": {
     "lang": "painless",
@@ -588,7 +588,7 @@ _EOF_
   # Doc Ref: https://www.elastic.co/guide/en/elasticsearch/reference/current/geoip-processor.html
   # Doc Ref: https://www.elastic.co/guide/en/elasticsearch/reference/current/script-processor.html
   #
-  curl -u "$ES_CLOUD_AUTH" -X PUT "https://${ES_ELASRCH_HOST}.${ES_DOMAIN}:9243/_ingest/pipeline/geoip-info" -H 'Content-Type: application/json' -d@- <<_EOF_
+  curl -u "$ES_CLOUD_AUTH" -X PUT "https://${ES_ELASRCH_HOST}.${ES_DOMAIN}/_ingest/pipeline/geoip-info" -H 'Content-Type: application/json' -d@- <<_EOF_
 {
   "description": "Add geoip info",
   "processors": [
