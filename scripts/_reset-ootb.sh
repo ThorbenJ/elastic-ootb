@@ -5,6 +5,8 @@
 # This script attempts remove everything that the other ootb scripts installed
 # There is no guarantee that it will remove everything, nor that it wont
 # remove something it shouldn't. It is used for testing
+#
+# Unless the argument 'full' is given the reset will be less comprehensive
 
 # Avoid issues with locales
 unset LANG LC_CTYPE LC_ALL
@@ -21,6 +23,8 @@ _fail() {
   exit 1
 }
 
+RESET_MODE="$1"
+
 BEATS_LIST="metricbeat auditbeat packetbeat filebeat heartbeat-elastic"
 
 WEBGOAT_DC_FILE=webgoat-doc-comp.yml
@@ -29,8 +33,13 @@ remove_on_Debian() {
 
   sudo DEBIAN_FRONTEND=noninteractive apt-get -y purge $BEATS_LIST \
     docker-ce docker-ce-cli containerd.io docker-compose apache2 maven
-    
-  sudo DEBIAN_FRONTEND=noninteractive apt-get -y autoremove
+
+  sudo rm -rf /etc/apache2
+
+  # Thoroughly clean everything
+  test "$RESET_MODE" = "full" || return
+  
+  DEBIAN_FRONTEND=noninteractive apt-get -y autoremove
 
   curl -fsSL https://download.docker.com/linux/debian/gpg | sudo apt-key del -
   curl -fsSL https://artifacts.elastic.co/GPG-KEY-elasticsearch | sudo apt-key del -
@@ -38,8 +47,6 @@ remove_on_Debian() {
   sudo rm -f \
     /etc/apt/sources.list.d/docker-ce.list \
     /etc/apt/sources.list.d/elastic-7.x.list
-    
-  sudo rm -rf /etc/apache2
 
 }
 
@@ -50,17 +57,18 @@ remove_on_CentOS() {
   sudo yum remove -y $BEATS_LIST \
     docker-ce docker-ce-cli containerd.io httpd maven
   
+  sudo rm -rf /etc/httpd
+
+  # Thoroughly clean everything
+  test "$RESET_MODE" = "full" || return
+  
   sudo yum autoremove -y
 
   sudo rm -f /etc/yum.repos.d/elastic.repo \
     /etc/yum.repos.d/docker-ce.repo \
     /usr/local/bin/docker-compose
-  
-  sudo rm -rf /etc/httpd
 
 }
-
-
 
 remove_on_RHEL() { remove_on_CentOS ; }
 
@@ -71,7 +79,9 @@ if [ -x $(which docker-compose) -a -f "$WEBGOAT_DC_FILE" ]; then
   docker-compose -f "$WEBGOAT_DC_FILE" rm -fsv || true
 fi
 
-test -n "$HOME" && rm -rf "$HOME/.m2"
+# Cleat maven's cache (many many jar files)
+test "$RESET_MODE" = "full" -a -n "$HOME" && rm -rf "$HOME/.m2"
+
 test -f "$WEBGOAT_DC_FILE" && rm -f "$WEBGOAT_DC_FILE"
 
 # Beats packages don't stop their services when removed..

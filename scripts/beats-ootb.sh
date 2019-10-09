@@ -64,7 +64,7 @@ test -n "$ES_CLOUD_AUTH" || _fail "ES_CLOUD_AUTH missing from es-ootb.conf"
 # Beats understand cloud id natively, and this makes configuring them very easy
 # however we need the plain URLs to use in some 'curl' commands below
 ES_CLOUD_INFO=$(echo ${ES_CLOUD_ID#*:} | base64 -d -)
-ES_DOMAIN=$(echo $ES_CLOUD_INFO | cut -d $ -f1)
+ES_SUFFIX=$(echo $ES_CLOUD_INFO | cut -d $ -f1)
 ES_ELASRCH_HOST=$(echo $ES_CLOUD_INFO | cut -d $ -f2)
 ES_KIBANA_HOST=$(echo $ES_CLOUD_INFO | cut -d $ -f3)
 
@@ -222,7 +222,7 @@ configure_auditbeat() {
   # Configure the auditbeat pipeline
   # Doc Ref: https://www.elastic.co/guide/en/elasticsearch/reference/current/ingest.html
   # Doc Ref: https://www.elastic.co/guide/en/elasticsearch/reference/current/pipeline-processor.html
-  curl -u "$ES_CLOUD_AUTH" -X PUT "https://${ES_ELASRCH_HOST}.${ES_DOMAIN}/_ingest/pipeline/auditbeat-in" -H 'Content-Type: application/json' -d@- <<_EOF_
+  curl -u "$ES_CLOUD_AUTH" -X PUT "https://${ES_ELASRCH_HOST}.${ES_SUFFIX}/_ingest/pipeline/auditbeat-in" -H 'Content-Type: application/json' -d@- <<_EOF_
 {
   "description": "Auditbeat ingest pipeline",
   "processors": [
@@ -276,7 +276,7 @@ _EOF_
   # we try to redirect to those pipelines, allowing us to also include ours
   # Doc Ref: https://www.elastic.co/guide/en/elasticsearch/reference/current/ingest.html
   # Doc Ref: https://www.elastic.co/guide/en/elasticsearch/reference/current/pipeline-processor.html
-  curl -u "$ES_CLOUD_AUTH" -X PUT "https://${ES_ELASRCH_HOST}.${ES_DOMAIN}/_ingest/pipeline/filebeat-in" -H 'Content-Type: application/json' -d@- <<_EOF_
+  curl -u "$ES_CLOUD_AUTH" -X PUT "https://${ES_ELASRCH_HOST}.${ES_SUFFIX}/_ingest/pipeline/filebeat-in" -H 'Content-Type: application/json' -d@- <<_EOF_
 {
   "description": "Filebeat ingest pipeline",
   "processors": [
@@ -389,7 +389,7 @@ _EOF_
   
     HOSTNAME=$(hostname -s)
     
-    # single quote ' _EOF_ to disable shell substituion, otherwise bash will complain about ${data.host}, etc.
+    # need to excape beats ${} vars, otherwise bash will complain about ${data.host}, etc.
     cat <<_EOF_ |
 # Doc Ref: https://www.elastic.co/guide/en/beats/heartbeat/current/add-docker-metadata.html
 - add_docker_metadata: ~
@@ -422,7 +422,7 @@ _EOF_
   # Create our heartbeat pipeline
   # Doc Ref: https://www.elastic.co/guide/en/elasticsearch/reference/current/ingest.html
   # Doc Ref: https://www.elastic.co/guide/en/elasticsearch/reference/current/pipeline-processor.html
-  curl -u "$ES_CLOUD_AUTH" -X PUT "https://${ES_ELASRCH_HOST}.${ES_DOMAIN}/_ingest/pipeline/heartbeat-in" -H 'Content-Type: application/json' -d@- <<_EOF_
+  curl -u "$ES_CLOUD_AUTH" -X PUT "https://${ES_ELASRCH_HOST}.${ES_SUFFIX}/_ingest/pipeline/heartbeat-in" -H 'Content-Type: application/json' -d@- <<_EOF_
 {
   "description": "Heartbeat ingest pipeline",
   "processors": [
@@ -451,7 +451,7 @@ configure_metricbeat() {
   # Create our metricbeat pipeline
   # Doc Ref: https://www.elastic.co/guide/en/elasticsearch/reference/current/ingest.html
   # Doc Ref: https://www.elastic.co/guide/en/elasticsearch/reference/current/pipeline-processor.html
-  curl -u "$ES_CLOUD_AUTH" -X PUT "https://${ES_ELASRCH_HOST}.${ES_DOMAIN}/_ingest/pipeline/metricbeat-in" -H 'Content-Type: application/json' -d@- <<_EOF_
+  curl -u "$ES_CLOUD_AUTH" -X PUT "https://${ES_ELASRCH_HOST}.${ES_SUFFIX}/_ingest/pipeline/metricbeat-in" -H 'Content-Type: application/json' -d@- <<_EOF_
 {
   "description": "Metricbeat ingest pipeline",
   "processors": [
@@ -477,7 +477,7 @@ configure_packetbeat() {
   # Create our packetbeat pipeline
   # Doc Ref: https://www.elastic.co/guide/en/elasticsearch/reference/current/ingest.html
   # Doc Ref: https://www.elastic.co/guide/en/elasticsearch/reference/current/pipeline-processor.html
-  curl -u "$ES_CLOUD_AUTH" -X PUT "https://${ES_ELASRCH_HOST}.${ES_DOMAIN}/_ingest/pipeline/packetbeat-in" -H 'Content-Type: application/json' -d@- <<_EOF_
+  curl -u "$ES_CLOUD_AUTH" -X PUT "https://${ES_ELASRCH_HOST}.${ES_SUFFIX}/_ingest/pipeline/packetbeat-in" -H 'Content-Type: application/json' -d@- <<_EOF_
 {
   "description": "Packetbeat ingest pipeline",
   "processors": [
@@ -505,28 +505,35 @@ configure_geoip_pipeline() {
   # So if the IP field is an array, we need to select one IP from it
   #
   # sed voodoo from: https://superuser.com/a/1296229
-  # """ is kibana magic we have to recreate; conver new lines to literal \n
+  # """ is kibana magic we have to recreate; converting new lines to literal \n
   SCRIPT=$(sed ':a;N;$!ba;s/\n/\\n/g' <<_EOF_
 if (!ctx.containsKey(params.field) || !ctx[params.field].containsKey('ip') ) {
     return;
 }
 
-def ips = ctx[params.field].ip instanceof List ? ctx[params.field].ip : [ ctx[params.field].ip ];
+// Convert single ip to single entry in an array
+def ips = ctx[params.field].ip instanceof List
+    ? ctx[params.field].ip 
+    : [ ctx[params.field].ip ];
 
 def site_ip = '';
 def public_ip =  '';
 
 // No RegEx, as they are disabled by default
 for ( def ip : ips ) {
+
     // We don't deal with IPv6 yet..
     if ( ip.indexOf(':') >= 0) {
       continue
     }
+    
     if ( ip.startsWith('127.')
       || ip.startsWith('169.254.')
     ) {
+      // Not interested in local ips
       continue
     }
+    
     if ( ip.startsWith('10.')
       || ip.startsWith('192.168.')
       || ip.startsWith('172.16.')
@@ -546,19 +553,27 @@ for ( def ip : ips ) {
       || ip.startsWith('172.30.')
       || ip.startsWith('172.31.')
     ) {
+      // Private RFC1918 ips belong to the "site"
       site_ip = ip;
     }
     else {
+      // public IPs can be mapped to world locations
       public_ip = ip;
     }
 }
 
 if ( public_ip != '') {
+
+    // If we have a public IP use it for geo ip mapping
     ctx[params.field]._geo_ip = public_ip;
 }
 else if ( site_ip != '') {
+
+    // If no public IP, try with the site IP
     ctx[params.field]._geo_ip = site_ip;
     
+    // If agent.geo exists (set in the beat using ES_SITE_LOCATION above in configure_common() )
+    // Then set a site IP's geo to the same as agent.geo
     if ( ctx.containsKey('agent') && ctx.agent.containsKey('geo') ) {
         ctx[params.field].geo = ctx.agent.geo;
     }
@@ -568,7 +583,7 @@ _EOF_
 
   # Doc Ref: https://www.elastic.co/guide/en/elasticsearch/reference/current/modules-scripting-using.html
   # Doc Ref: https://www.elastic.co/guide/en/elasticsearch/painless/current/painless-guide.html
-  curl -u "$ES_CLOUD_AUTH" -X PUT "https://${ES_ELASRCH_HOST}.${ES_DOMAIN}/_scripts/pick_geoip" -H 'Content-Type: application/json' -d@- <<_EOF_
+  curl -u "$ES_CLOUD_AUTH" -X PUT "https://${ES_ELASRCH_HOST}.${ES_SUFFIX}/_scripts/pick_geoip" -H 'Content-Type: application/json' -d@- <<_EOF_
 {
   "script": {
     "lang": "painless",
@@ -588,7 +603,7 @@ _EOF_
   # Doc Ref: https://www.elastic.co/guide/en/elasticsearch/reference/current/geoip-processor.html
   # Doc Ref: https://www.elastic.co/guide/en/elasticsearch/reference/current/script-processor.html
   #
-  curl -u "$ES_CLOUD_AUTH" -X PUT "https://${ES_ELASRCH_HOST}.${ES_DOMAIN}/_ingest/pipeline/geoip-info" -H 'Content-Type: application/json' -d@- <<_EOF_
+  curl -u "$ES_CLOUD_AUTH" -X PUT "https://${ES_ELASRCH_HOST}.${ES_SUFFIX}/_ingest/pipeline/geoip-info" -H 'Content-Type: application/json' -d@- <<_EOF_
 {
   "description": "Add geoip info",
   "processors": [
