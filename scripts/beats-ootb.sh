@@ -553,7 +553,7 @@ for ( def ip : ips ) {
       || ip.startsWith('172.30.')
       || ip.startsWith('172.31.')
     ) {
-      // Private RFC1918 ips belong to the "site"
+      // Private RFC1918 ips belong to the 'site'
       site_ip = ip;
     }
     else {
@@ -573,7 +573,7 @@ else if ( site_ip != '') {
     ctx[params.field]._geo_ip = site_ip;
     
     // If agent.geo exists (set in the beat using ES_SITE_LOCATION above in configure_common() )
-    // Then set a site IP's geo to the same as agent.geo
+    // Then set a site IPs geo to the same as agent.geo
     if ( ctx.containsKey('agent') && ctx.agent.containsKey('geo') ) {
         ctx[params.field].geo = ctx.agent.geo;
     }
