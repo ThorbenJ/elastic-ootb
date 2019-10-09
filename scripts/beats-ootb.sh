@@ -224,7 +224,7 @@ configure_auditbeat() {
   configure_common auditbeat
 
   # Skip if we're not to setup elasticsearch & kibana
-  test "$OOTB_MODE" = "setup" || return
+  test "$OOTB_MODE" = "setup" || return 0
   
   # Configure the auditbeat pipeline
   # Doc Ref: https://www.elastic.co/guide/en/elasticsearch/reference/current/ingest.html
@@ -276,7 +276,7 @@ _EOF_
   sudo filebeat modules enable system apache
 
   # Skip if we're not to setup elasticsearch & kibana
-  test "$OOTB_MODE" = "setup" || return
+  test "$OOTB_MODE" = "setup" || return 0
   
   # Configure filebeat's ingest pipeline
   # NOTE some filebeat modules ship with their own ingest pipelines, for compatibility
@@ -424,7 +424,7 @@ _EOF_
   fi # End: IF Configure for docker
 
   # Skip if we're not to setup elasticsearch & kibana
-  test "$OOTB_MODE" = "setup" || return
+  test "$OOTB_MODE" = "setup" || return 0
   
   # Create our heartbeat pipeline
   # Doc Ref: https://www.elastic.co/guide/en/elasticsearch/reference/current/ingest.html
@@ -453,7 +453,7 @@ configure_metricbeat() {
   sudo metricbeat modules enable system apache docker
 
   # Skip if we're not to setup elasticsearch & kibana
-  test "$OOTB_MODE" = "setup" || return
+  test "$OOTB_MODE" = "setup" || return 0
   
   # Create our metricbeat pipeline
   # Doc Ref: https://www.elastic.co/guide/en/elasticsearch/reference/current/ingest.html
@@ -479,7 +479,7 @@ configure_packetbeat() {
   configure_common packetbeat
 
   # Skip if we're not to setup elasticsearch & kibana
-  test "$OOTB_MODE" = "setup" || return
+  test "$OOTB_MODE" = "setup" || return 0
   
   # Create our packetbeat pipeline
   # Doc Ref: https://www.elastic.co/guide/en/elasticsearch/reference/current/ingest.html
@@ -505,7 +505,7 @@ _EOF_
 configure_geoip_pipeline() {
 
   # Skip if we're not to setup elasticsearch & kibana
-  test "$OOTB_MODE" = "setup" || return
+  test "$OOTB_MODE" = "setup" || return 0
   
   #~~~~~~~~~~~~~~~~
   # We will only run geoip on one (prefarably public) IP address
