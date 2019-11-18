@@ -43,18 +43,76 @@ test -f es-ootb.conf || _fail "Config file es-ootb.conf missing"
 test -n "$ES_APM_SERVER" || _fail "ES_APM_SERVER missing from es-ootb.conf"
 test -n "$ES_APM_TOKEN" || _fail "ES_APM_TOKEN missing from es-ootb.conf"
 
+# Where to get the latest RUM agent from
+ES_APM_RUM_URL="https://github.com/elastic/apm-agent-rum-js/releases/latest/download/elastic-apm-rum.umd.min.js"
+
+# The APM RUM agent JS script needs to be loaded into the web page
+# Doc Ref: https://www.elastic.co/guide/en/apm/server/current/configuration-rum.html
+#
+# Instead of changing the HTML source, we will use Apache's substitute module to
+# inject the needed script tags to all pages
+# We use the first dir as service name (e.g. "/WebGoat")
+ES_APM_RUM_APACHE_CONF=$( cat <<_EOF_
+AddOutputFilterByType SUBSTITUTE text/html
+Substitute "s|</body>|\
+<script src='/elastic-apm-rum.umd.min.js' crossorigin></script>\
+<script> \
+var rum_svc_name = window.location.pathname; \
+rum_svc_name = rum_svc_name.substring(0, rum_svc_name.indexOf('/', 1)).replace(/[^0-9a-zA-Z]/g, '_'); \
+elasticApm.init({ serviceName: rum_svc_name, serverUrl: '$ES_APM_SERVER' }); \
+</script>\
+</body>|n"
+_EOF_
+)
+
 test -S /var/run/docker.sock || _fail "Docker does not appear to be running"
 
 ###############################################################
 # Functions
 #
 
+relaunch_via_systemd() {
+  sudo systemctl enable $1
+  sudo systemctl restart $1
+}
+
+display_apm_rum_config_msg() {
+
+  cat <<_EOF_
+################################################################
+#           *** ENABLE RUM ON YOUR APM SERVER ***              #
+#--------------------------------------------------------------#
+#                                                              #
+# 1) GOTO: https://cloud.elastic.co/ & login                   #
+# 2) Select your deployment and click "Edit" in the left menu  #
+# 3) Scroll down to "APM" and click "User Setting Overrides"   #
+# 4) Add the following lines and Click "Save"                  #
+
+apm-server.rum.enabled: true
+apm-server.rum.allow_origins: ['*']
+
+################################################################
+_EOF_
+
+}
+
 ##### Installation ######
 
 install_on_Debian() {
   
   # This will pull in the default JDK and its many mnay dependencies, unfortunately
-  sudo DEBIAN_FRONTEND=noninteractive apt-get -y install maven
+  sudo DEBIAN_FRONTEND=noninteractive apt-get -y install maven apache2
+  
+  # We use the substitute module in insert the APM RUM script
+  sudo a2enmod substitute
+  
+  # Fetch the APM RUM script and copy into www docs
+  curl -L "$ES_APM_RUM_URL" -o /tmp/elastic-apm-rum.umd.min.js
+  sudo cp /tmp/elastic-apm-rum.umd.min.js /var/www/html/elastic-apm-rum.umd.min.js
+  
+  echo "$ES_APM_RUM_APACHE_CONF" | sudo tee /etc/apache2/conf-enabled/es-apm-rum.conf >/dev/null
+  
+  relaunch_via_systemd apache2
   
 } # End: install_on_Debian
 
@@ -65,7 +123,18 @@ install_on_Ubuntu() { install_on_Debian; }
 install_on_CentOS() {
 
   # This will pull in the default JDK and its many mnay dependencies, unfortunately
-  sudo yum -y install maven
+  sudo yum -y install maven httpd
+  
+  # We use the substitute module in insert the APM RUM script
+  # Already loaded on a default CentOS install
+  
+  # Fetch the APM RUM script and copy into www docs
+  curl -L "$ES_APM_RUM_URL" -o /tmp/elastic-apm-rum.umd.min.js
+  sudo cp /tmp/elastic-apm-rum.umd.min.js /var/www/html/elastic-apm-rum.umd.min.js
+  
+  echo "$ES_APM_RUM_APACHE_CONF" | sudo tee /etc/httpd/conf.d/es-apm-rum.conf >/dev/null
+  
+  relaunch_via_systemd httpd
   
 } # End: install_on_CentOS
 
@@ -91,6 +160,8 @@ fetch_apm_agent() {
 ###########################################################################
 # Script starts here
 #
+
+display_apm_rum_config_msg
 
 # e.g. install_on_Debian or install_on_CentOS
 install_on_$(lsb_release -is)
@@ -125,3 +196,5 @@ if [ "$1" = "wait4more" ]; then
     attach_apm_agent
   done
 fi # End: IF wait for more
+
+display_apm_rum_config_msg
