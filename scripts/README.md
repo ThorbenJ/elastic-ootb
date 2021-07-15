@@ -1,3 +1,8 @@
+# No longer Maintained
+
+You are welcome to use these script but be aware they are no longer being tested and maintained.
+Most of what this scripts did has been superseeded by: https://github.com/ElasticSA/spout
+
 # Elastic OOTB Scripts
 
 Script for the Elastic Stack Out-of-the-Box (OOTB) demonstration. 
